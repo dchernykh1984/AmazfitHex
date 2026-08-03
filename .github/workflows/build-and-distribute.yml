@@ -1,0 +1,95 @@
+name: Build and Distribute
+
+# Builds the Zepp OS store bundle (.zab) with the Zeus CLI and, when called for a
+# release, attaches it to that GitHub Release. Zepp has no public publish API, so
+# uploading the .zab to the Zepp App Store (with the listing, screenshots and
+# release notes) stays manual - this just produces the artifact to upload.
+#
+# NOTE: this needs the app code (app.json etc.). Until the app is added, a release
+# build will fail at "zeus build"; the workflow only runs on a release or manual
+# dispatch, never on a pull request, so it does not block PR CI.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The release tag to attach the .zab to
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build from
+        required: false
+        default: main
+        type: string
+      tag:
+        description: Optional release tag to attach the built .zab to
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-zab:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # attach the .zab to the release
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || inputs.ref }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install the Zeus CLI
+        # Installed globally rather than via npx or as a dependency: npx's cache
+        # layout breaks the CLI's module-alias resolution ("Cannot find module
+        # 'zeppos-app-utils'"), while tracking it as a dependency would drag its
+        # large, outdated transitive tree into the lockfile and the security scan.
+        run: npm install -g @zeppos/zeus-cli@1.9.2
+
+      - name: Set the Zepp app version from package.json
+        # release-please bumps package.json but not app.json - its JSON updater
+        # reformats app.json in a way prettier rejects. Sync the version here
+        # instead: name = the release version, code = an ever-increasing integer the
+        # store needs, derived from the semver as major*10000 + minor*100 + patch.
+        run: |
+          name="$(node -p "require('./package.json').version")"
+          IFS='.' read -r major minor patch <<< "$name"
+          code=$(( 10#$major * 10000 + 10#$minor * 100 + 10#$patch ))
+          tmp="$(mktemp)"
+          jq --arg name "$name" --argjson code "$code" '.app.version.name = $name | .app.version.code = $code' app.json > "$tmp" && mv "$tmp" app.json
+          echo "app version: name=$name code=$code"
+
+      - name: Build the store bundle (.zab)
+        run: zeus build
+
+      - name: Locate the .zab
+        id: zab
+        run: |
+          zab="$(find . -maxdepth 2 -name '*.zab' -not -path './node_modules/*' 2>/dev/null | head -1)"
+          if [ -z "$zab" ]; then
+            echo "No .zab produced by zeus build" >&2
+            exit 1
+          fi
+          echo "path=$zab" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the bundle as a workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: amazfit-hex-zab
+          path: ${{ steps.zab.outputs.path }}
+          if-no-files-found: error
+
+      - name: Attach the bundle to the release
+        if: inputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ inputs.tag }}" "${{ steps.zab.outputs.path }}" --clobber
