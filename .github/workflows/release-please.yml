@@ -1,0 +1,39 @@
+name: Release Please
+
+# On every push to main, release-please maintains a "release PR" that bumps the
+# version in package.json and updates CHANGELOG.md from the Conventional Commits.
+# Merging that PR tags the release and creates a GitHub Release.
+#
+# A release created with the default GITHUB_TOKEN does not trigger other
+# release-triggered workflows, so the build-zab job below calls the build workflow
+# directly once a release is created, producing and attaching the .zab bundle.
+# Uploading it to the Zepp App Store stays manual (no publish API).
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v5
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  build-zab:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build-and-distribute.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets: inherit
