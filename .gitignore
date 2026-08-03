@@ -1,0 +1,46 @@
+# ===== Node =====
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# ===== Build output =====
+# .zab is the Zepp App Store bundle; dist/ holds cover/screen images for the listing.
+dist/
+build/
+*.zab
+coverage/
+
+# Zeus CLI cache and downloaded device targets
+.zeus/
+.download/
+
+# ===== Environment variables =====
+.env
+.env.*
+
+# ===== Logs =====
+*.log
+logs/
+
+# ===== IDEs =====
+.vscode/
+.zed/
+.idea/
+*.iml
+
+# ===== AI agents =====
+.claude/
+.cursor/
+.windsurf/
+.gemini/
+.aider*
+.continue/
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== Temporary files (never committed, holds working context) =====
+tmp/
+temp/
