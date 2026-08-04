@@ -369,17 +369,30 @@ Page({
     }
     const game = this.state.game;
 
+    let answered = false;
     if (canSwap(game) && shouldSwap(game)) {
-      swapSides(game);
+      answered = swapSides(game);
     } else {
       const move = chooseMove(game, { level: this.state.level });
       if (move >= 0 && play(game, move)) {
         this.paintCell(move);
         this.markLastMove();
+        answered = true;
       }
     }
 
     this.state.thinking = false;
+
+    if (!answered) {
+      // Nothing to play, which the rules say cannot happen while a game is
+      // unfinished - an unfinished Hex board always has an empty cell on it.
+      // Stop anyway rather than carry on: afterMove() would see the same
+      // position, ask for the same answer, and go round again for as long as
+      // the watch had battery left.
+      this.updateHud();
+      return;
+    }
+
     this.afterMove();
   },
 

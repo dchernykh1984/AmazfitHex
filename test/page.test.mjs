@@ -377,6 +377,22 @@ describe("a game against the watch", () => {
     expect(page.state.game).toBe(null);
   });
 
+  it("gives up rather than asking itself again when there is nothing to play", async () => {
+    vi.useFakeTimers();
+    const page = await startGame({ mode: 1, level: 1 });
+    const board = cells(5);
+    board[at(5, 0, 0)].tap();
+
+    // A board with no empty cell and no winner cannot arise from the rules; it
+    // is forced here because what it must not do - ask for an answer that
+    // changes nothing, over and over - would run until the battery died.
+    page.state.game.cells.fill(1);
+    vi.runOnlyPendingTimers();
+
+    expect(vi.getTimerCount()).toBe(0);
+    expect(board.some((cell) => cell.properties.color === COLOR_BLUE)).toBe(false);
+  });
+
   it("plays a whole game out and names the winner as the player or the watch", async () => {
     vi.useFakeTimers();
     await startGame({ mode: 1, level: 0 });
