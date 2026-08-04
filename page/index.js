@@ -143,6 +143,25 @@ Page({
   },
 
   build() {
+    // `state` above is an object literal, created once when this module is
+    // evaluated, and Zepp OS may build a second page from the same definition
+    // without re-evaluating it - leaving the app and coming back is enough. So
+    // everything that belongs to one visit is cleared here rather than left to
+    // the initialiser: without this, a rebuilt page would start with `destroyed`
+    // still set and refuse every tap, holding handles to widgets that went with
+    // the previous screen.
+    this.state.destroyed = false;
+    this.state.screen = "menu";
+    this.state.game = null;
+    this.state.layout = null;
+    this.state.thinking = false;
+    this.state.timer = null;
+    this.state.cells = [];
+    this.state.mark = null;
+    this.state.status = null;
+    this.state.footer = [];
+    this.state.menu = [];
+
     try {
       this.state.language = languageFromZeppCode(getLanguage());
     } catch {
