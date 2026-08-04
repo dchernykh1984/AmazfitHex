@@ -1,6 +1,7 @@
-# Amazfit Hex
+# Hex Duel
 
-**Hex** for Amazfit watches: a **Zepp OS mini app** for round screens.
+**Hex** for Amazfit watches: a **Zepp OS mini app** for round screens, published as
+**Hex Duel**.
 
 Hex is a connection game played on a rhombus of hexagons. Red owns the top and bottom
 edges, Blue the left and right ones, and each player is trying to be the first to join
@@ -79,9 +80,6 @@ Releases are automated with `release-please`: it maintains a version-bump PR fro
 Conventional Commits and, when merged, tags a GitHub Release. The release build
 workflow then produces the `.zab` store bundle and attaches it. Uploading the `.zab`
 to the Zepp App Store stays manual, because Zepp has no public publish API.
-
-The `appId` in `app.json` is a placeholder until the app is registered in the Zepp
-developer console; the store will not accept a bundle built with it.
 
 ## License
 
