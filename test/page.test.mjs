@@ -168,6 +168,23 @@ describe("the menu", () => {
     page.onDestroy();
     expect(display.display().reset).toBe(1);
   });
+
+  it("plays again after the page has been left and built a second time", async () => {
+    // Zepp OS can build a second page from the same module-level definition, so
+    // a visit that ended must not leave anything behind that stops the next one
+    // from working.
+    const page = await loadPage({ stored: { [MODE_KEY]: MODE_TWO_PLAYERS, [SIZE_KEY]: 0 } });
+    button(EN.play).tap();
+    page.onDestroy();
+
+    ui.reset();
+    page.build();
+    button(EN.play).tap();
+    const board = cells(5);
+    board[at(5, 2, 2)].tap();
+    expect(board[at(5, 2, 2)].properties.color).toBe(COLOR_RED);
+    expect(texts()).toContain(EN.turn_blue);
+  });
 });
 
 describe("a game between two players", () => {
