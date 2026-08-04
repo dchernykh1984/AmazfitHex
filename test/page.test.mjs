@@ -266,16 +266,38 @@ describe("a game between two players", () => {
     expect(texts()).toContain(EN.win_red);
   });
 
-  it("deals another hand of the same game", async () => {
+  it("deals another hand on the cells already drawn rather than redrawing them", async () => {
     await startGame();
-    let board = cells(5);
+    const board = cells(5);
     playUpToRedsWin(board, 5);
     board[at(5, 2, 4)].tap();
 
     button(EN.again).tap();
-    board = cells(5);
-    expect(board.every((cell) => cell.properties.color !== COLOR_RED)).toBe(true);
+    const again = cells(5);
+    // The same widgets, painted back to empty: a new board costs no widget
+    // churn on a watch that can ill afford it.
+    expect(again).toEqual(board);
+    expect(again.every((cell) => cell.properties.color !== COLOR_RED)).toBe(true);
+    expect(again.every((cell) => cell.properties.color !== COLOR_BLUE)).toBe(true);
     expect(texts()).toContain(EN.turn_red);
+
+    // And it still plays.
+    again[at(5, 1, 1)].tap();
+    expect(again[at(5, 1, 1)].properties.color).toBe(COLOR_RED);
+  });
+
+  it("redraws the board when the size chosen in the menu changed", async () => {
+    await startGame();
+    const board = cells(5);
+    button(EN.menu).tap();
+    button("5x5").tap();
+    button(EN.play).tap();
+
+    const bigger = cells(7);
+    expect(bigger.length).toBe(49);
+    for (const cell of board) {
+      expect(cell.deleted).toBe(true);
+    }
   });
 
   it("goes back to the menu, and to a board of the size chosen there", async () => {

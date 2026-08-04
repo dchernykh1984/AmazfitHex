@@ -285,8 +285,20 @@ Page({
     this.state.thinking = false;
     const size = boardSizeFor(this.state.sizeIndex);
     this.state.game = createGame(size);
-    this.state.layout = hexLayout(SCREEN_SIZE, size, SCREEN_PADDING, MIN_CAP);
-    this.buildBoard();
+    // Another game on the board already drawn only needs its cells painted back
+    // to empty. Deleting and recreating one widget per cell would be up to a
+    // hundred and sixty widget operations on the largest board, which is a
+    // visible stutter on a watch and buys nothing.
+    if (
+      this.state.layout &&
+      this.state.layout.size === size &&
+      this.state.cells.length === size * size
+    ) {
+      this.repaintBoard();
+    } else {
+      this.state.layout = hexLayout(SCREEN_SIZE, size, SCREEN_PADDING, MIN_CAP);
+      this.buildBoard();
+    }
     this.updateHud();
     this.maybeAnswer();
   },
@@ -389,6 +401,19 @@ Page({
       });
       this.listenToCell(widget, cell);
       this.state.cells.push(widget);
+    }
+  },
+
+  // Put the cells already on screen back to how a fresh board looks. The taps
+  // they listen for are unaffected: a cell reports which cell it is, and the
+  // page decides what that means now.
+  repaintBoard() {
+    if (this.state.mark) {
+      hmUI.deleteWidget(this.state.mark);
+      this.state.mark = null;
+    }
+    for (let cell = 0; cell < this.state.cells.length; cell++) {
+      this.paintCell(cell);
     }
   },
 
