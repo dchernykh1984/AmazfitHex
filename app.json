@@ -1,0 +1,51 @@
+{
+  "configVersion": "v3",
+  "app": {
+    "appId": 1000001,
+    "appName": "Hex",
+    "appType": "app",
+    "version": {
+      "code": 100,
+      "name": "0.1.0"
+    },
+    "icon": "icon.png",
+    "vender": "dchernykh1984",
+    "description": "The connection game Hex for round Amazfit watches: join your two sides of the board before your opponent joins theirs. Play against the watch on three levels, or pass it back and forth with a friend."
+  },
+  "permissions": ["data:os.device.info", "device:os.local_storage"],
+  "runtime": {
+    "apiVersion": {
+      "compatible": "3.0.0",
+      "target": "3.0.0",
+      "minVersion": "3.0"
+    }
+  },
+  "targets": {
+    "common": {
+      "module": {
+        "page": {
+          "pages": ["page/index"]
+        }
+      },
+      "platforms": [
+        {
+          "st": "r",
+          "dw": 466
+        },
+        {
+          "st": "r",
+          "dw": 480
+        }
+      ]
+    }
+  },
+  "i18n": {
+    "en-US": {
+      "appName": "Hex"
+    },
+    "ru-RU": {
+      "appName": "Hex"
+    }
+  },
+  "defaultLanguage": "en-US"
+}
