@@ -1,8 +1,8 @@
 {
   "configVersion": "v3",
   "app": {
-    "appId": 1000001,
-    "appName": "Hex",
+    "appId": 1122457,
+    "appName": "Hex Duel",
     "appType": "app",
     "version": {
       "code": 100,
@@ -41,10 +41,10 @@
   },
   "i18n": {
     "en-US": {
-      "appName": "Hex"
+      "appName": "Hex Duel"
     },
     "ru-RU": {
-      "appName": "Hex"
+      "appName": "Hex Duel"
     }
   },
   "defaultLanguage": "en-US"
