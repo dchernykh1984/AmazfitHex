@@ -2,7 +2,14 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { LABELS } from "../lib/i18n/labels.js";
 import { MODE_KEY, MODE_TWO_PLAYERS, SIZE_KEY, LEVEL_KEY } from "../lib/settings.js";
 import { hexLayout } from "../lib/layout/hex-layout.js";
-import { COLOR_BLUE, COLOR_RED } from "../utils/config/constants.js";
+import {
+  COLOR_BLUE,
+  COLOR_CELL,
+  COLOR_CELL_BLUE_EDGE,
+  COLOR_CELL_BOTH_EDGES,
+  COLOR_CELL_RED_EDGE,
+  COLOR_RED,
+} from "../utils/config/constants.js";
 
 const EN = LABELS.en;
 
@@ -411,6 +418,49 @@ describe("a game against the watch", () => {
     expect(hasButton(EN.again)).toBe(true);
     const shown = texts();
     expect(shown.includes(EN.win_you) || shown.includes(EN.win_cpu)).toBe(true);
+  });
+});
+
+describe("the edges of the board", () => {
+  it("tints each player's two sides, and the corners as belonging to both", async () => {
+    await startGame();
+    const board = cells(5);
+
+    // Red joins the top and bottom rows, blue the left and right columns.
+    expect(board[at(5, 2, 0)].properties.color).toBe(COLOR_CELL_RED_EDGE);
+    expect(board[at(5, 2, 4)].properties.color).toBe(COLOR_CELL_RED_EDGE);
+    expect(board[at(5, 0, 2)].properties.color).toBe(COLOR_CELL_BLUE_EDGE);
+    expect(board[at(5, 4, 2)].properties.color).toBe(COLOR_CELL_BLUE_EDGE);
+
+    // Every corner carries one edge of each player, which is how Hex counts
+    // them, so none of them is painted as one player's alone.
+    for (const corner of [
+      [0, 0],
+      [4, 0],
+      [0, 4],
+      [4, 4],
+    ]) {
+      expect(board[at(5, corner[0], corner[1])].properties.color, `${corner}`).toBe(
+        COLOR_CELL_BOTH_EDGES
+      );
+    }
+
+    // Everything else is a plain cell.
+    expect(board[at(5, 2, 2)].properties.color).toBe(COLOR_CELL);
+    expect(board[at(5, 1, 3)].properties.color).toBe(COLOR_CELL);
+  });
+
+  it("paints a cell back to its own tint when the board is dealt again", async () => {
+    await startGame();
+    const board = cells(5);
+    playUpToRedsWin(board, 5);
+    board[at(5, 2, 4)].tap();
+
+    button(EN.again).tap();
+    expect(board[at(5, 2, 0)].properties.color).toBe(COLOR_CELL_RED_EDGE);
+    expect(board[at(5, 2, 4)].properties.color).toBe(COLOR_CELL_RED_EDGE);
+    expect(board[at(5, 4, 2)].properties.color).toBe(COLOR_CELL_BLUE_EDGE);
+    expect(board[at(5, 0, 0)].properties.color).toBe(COLOR_CELL_BOTH_EDGES);
   });
 });
 

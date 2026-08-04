@@ -1,12 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { CELL_RATIO, cellBox, hexLayout } from "../lib/layout/hex-layout.js";
 import { MAX_NEIGHBORS, MAX_SIZE, MIN_SIZE, topologyFor } from "../lib/hex/board.js";
+import { BOARD_SIZES } from "../lib/settings.js";
+import { MIN_CAP, SCREEN_PADDING } from "../utils/config/constants.js";
 
-// The two round screens the app is built for.
+// The two round screens the app is built for, the boards it offers and the
+// spacing it asks for, taken from what actually ships rather than restated here:
+// the guarantees below are only worth having for the real numbers.
 const SCREENS = [466, 480];
-const SIZES = [5, 7, 9];
-const PADDING = 8;
-const MIN_CAP = 40;
+const SIZES = BOARD_SIZES;
+const PADDING = SCREEN_PADDING;
 
 const distance = (layout, a, b) =>
   Math.hypot(layout.centersX[a] - layout.centersX[b], layout.centersY[a] - layout.centersY[b]);
