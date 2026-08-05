@@ -3,13 +3,7 @@ import { getLanguage } from "@zos/settings";
 import { setPageBrightTime, resetPageBrightTime } from "@zos/display";
 import { LocalStorage } from "@zos/storage";
 
-import {
-  EDGE_BLUE_END,
-  EDGE_BLUE_START,
-  EDGE_RED_END,
-  EDGE_RED_START,
-  RED,
-} from "../lib/hex/board.js";
+import { RED } from "../lib/hex/board.js";
 import {
   SEAT_FIRST,
   canSwap,
@@ -21,7 +15,16 @@ import {
   swapSides,
 } from "../lib/hex/game.js";
 import { LEVELS, chooseMove, clampLevel, nextLevel, shouldSwap } from "../lib/hex/ai.js";
-import { cellBox, hexLayout } from "../lib/layout/hex-layout.js";
+import { hexLayout } from "../lib/layout/hex-layout.js";
+import { cellAt } from "../lib/layout/hex-shape.js";
+import {
+  boardCommands,
+  cellCommands,
+  clearCommands,
+  colorForCell,
+  colorForStone,
+  markCommands,
+} from "../lib/paint.js";
 import { centeredBox } from "../lib/round-geometry.js";
 import { labelFor, languageFromZeppCode } from "../lib/i18n/index.js";
 import {
@@ -40,16 +43,9 @@ import { SCREEN_SIZE } from "../utils/config/device.js";
 import {
   BRIGHT_TIME_MS,
   COLOR_BACKGROUND,
-  COLOR_BLUE,
   COLOR_BUTTON,
   COLOR_BUTTON_PRESSED,
-  COLOR_CELL,
-  COLOR_CELL_BLUE_EDGE,
-  COLOR_CELL_BOTH_EDGES,
-  COLOR_CELL_RED_EDGE,
-  COLOR_MARK,
   COLOR_MUTED,
-  COLOR_RED,
   COLOR_TEXT,
   MIN_CAP,
   SCREEN_PADDING,
@@ -63,9 +59,6 @@ const BUTTON_HEIGHT = Math.round(SCREEN_SIZE * 0.11);
 const STACK_GAP = Math.round(SCREEN_SIZE * 0.018);
 const MAX_MENU_WIDTH = Math.round(SCREEN_SIZE * 0.78);
 const FOOTER_GAP = Math.round(SCREEN_SIZE * 0.02);
-
-const RED_EDGES = EDGE_RED_START | EDGE_RED_END;
-const BLUE_EDGES = EDGE_BLUE_START | EDGE_BLUE_END;
 
 // A widget that failed to take a setting is not worth crashing a game over, and
 // a watch that has no storage should still play - just without remembering. The
@@ -94,28 +87,6 @@ function writeValue(storage, key, value) {
   }
 }
 
-function colorForStone(color) {
-  return color === RED ? COLOR_RED : COLOR_BLUE;
-}
-
-// What an empty cell is painted: plain in the middle of the board, tinted along
-// an edge to show whose side it is. The corners belong to one edge of each
-// player and are painted as such rather than being assigned to one of them.
-function colorForEmptyCell(edges) {
-  const red = (edges & RED_EDGES) !== 0;
-  const blue = (edges & BLUE_EDGES) !== 0;
-  if (red && blue) {
-    return COLOR_CELL_BOTH_EDGES;
-  }
-  if (red) {
-    return COLOR_CELL_RED_EDGE;
-  }
-  if (blue) {
-    return COLOR_CELL_BLUE_EDGE;
-  }
-  return COLOR_CELL;
-}
-
 Page({
   state: {
     language: "en",
@@ -133,10 +104,12 @@ Page({
     timer: null,
     destroyed: false,
     // Widgets, grouped by lifetime: the background lives as long as the page,
-    // the cells and the last-move mark as long as a game, and the status line,
-    // the footer and the menu as long as a screen.
-    cells: [],
-    mark: null,
+    // the board canvas as long as a game, and the status line, the footer and
+    // the menu as long as a screen.
+    canvas: null,
+    // Which cell the last-move dot is currently drawn on. A canvas keeps no
+    // scene graph, so moving the dot means painting that cell over first.
+    markedCell: -1,
     status: null,
     footer: [],
     menu: [],
@@ -156,8 +129,8 @@ Page({
     this.state.layout = null;
     this.state.thinking = false;
     this.state.timer = null;
-    this.state.cells = [];
-    this.state.mark = null;
+    this.state.canvas = null;
+    this.state.markedCell = -1;
     this.state.status = null;
     this.state.footer = [];
     this.state.menu = [];
@@ -285,20 +258,10 @@ Page({
     this.state.thinking = false;
     const size = boardSizeFor(this.state.sizeIndex);
     this.state.game = createGame(size);
-    // Another game on the board already drawn only needs its cells painted back
-    // to empty. Deleting and recreating one widget per cell would be up to a
-    // hundred and sixty widget operations on the largest board, which is a
-    // visible stutter on a watch and buys nothing.
-    if (
-      this.state.layout &&
-      this.state.layout.size === size &&
-      this.state.cells.length === size * size
-    ) {
-      this.repaintBoard();
-    } else {
+    if (!this.state.layout || this.state.layout.size !== size) {
       this.state.layout = hexLayout(SCREEN_SIZE, size, SCREEN_PADDING, MIN_CAP);
-      this.buildBoard();
     }
+    this.buildBoard();
     this.updateHud();
     this.maybeAnswer();
   },
@@ -398,90 +361,107 @@ Page({
 
   // ---------------------------------------------------------------- board ----
 
-  buildBoard() {
-    this.clearBoard();
-    const layout = this.state.layout;
-    const edges = this.state.game.topology.edges;
-    for (let cell = 0; cell < layout.cellCount; cell++) {
-      const box = cellBox(layout, cell);
-      const widget = hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: box.x,
-        y: box.y,
-        w: box.w,
-        h: box.h,
-        radius: layout.radius,
-        color: colorForEmptyCell(edges[cell]),
-      });
-      this.listenToCell(widget, cell);
-      this.state.cells.push(widget);
+  // The board lives on one canvas, from the top of the screen down to the bottom
+  // of the rhombus.
+  //
+  // Two things fix that shape. Its origin is (0, 0), so a point on the screen is
+  // the same point on the canvas and no offset can be got wrong. And it stops
+  // above the footer, because a canvas swallows the touches that land on it -
+  // the sibling Sokoban app found that a button drawn over a listening canvas is
+  // simply dead - so the buttons below the board have to sit outside it. The
+  // status line above the board is only text and may overlap safely.
+  boardCanvas() {
+    if (this.state.canvas) {
+      return this.state.canvas;
     }
-  },
-
-  // Put the cells already on screen back to how a fresh board looks. The taps
-  // they listen for are unaffected: a cell reports which cell it is, and the
-  // page decides what that means now.
-  repaintBoard() {
-    if (this.state.mark) {
-      hmUI.deleteWidget(this.state.mark);
-      this.state.mark = null;
-    }
-    for (let cell = 0; cell < this.state.cells.length; cell++) {
-      this.paintCell(cell);
-    }
-  },
-
-  listenToCell(widget, cell) {
+    const canvas = hmUI.createWidget(hmUI.widget.CANVAS, {
+      x: 0,
+      y: 0,
+      w: SCREEN_SIZE,
+      h: this.state.layout.bottom,
+    });
     try {
-      widget.addEventListener(hmUI.event.CLICK_UP, () => this.onCellTap(cell));
+      canvas.addEventListener(hmUI.event.CLICK_UP, (info) => this.onBoardTap(info));
     } catch {
-      // A firmware that does not deliver per-widget taps leaves a board that can
-      // be read but not played, which still beats a page that threw while it was
+      // A firmware that does not deliver canvas taps leaves a board that can be
+      // read but not played, which still beats a page that threw while it was
       // being built and left the screen black.
+    }
+    this.state.canvas = canvas;
+    return canvas;
+  },
+
+  // Draw the whole board. The canvas keeps no scene graph, so the band is wiped
+  // first: cells painted back to empty cannot uncover the stones underneath.
+  buildBoard() {
+    const canvas = this.boardCanvas();
+    const game = this.state.game;
+    this.state.markedCell = -1;
+    this.run(canvas, clearCommands(this.state.layout, SCREEN_SIZE));
+    this.run(canvas, boardCommands(this.state.layout, game.cells, game.topology.edges));
+  },
+
+  // One tap anywhere on the board: the canvas is a single widget, so where the
+  // finger landed is all there is to go on.
+  onBoardTap(info) {
+    if (!info || this.state.destroyed) {
+      return;
+    }
+    const cell = cellAt(this.state.layout, info.x, info.y);
+    if (cell >= 0) {
+      this.onCellTap(cell);
     }
   },
 
   paintCell(cell) {
-    const widget = this.state.cells[cell];
-    if (!widget) {
+    const canvas = this.state.canvas;
+    if (!canvas) {
       return;
     }
-    const layout = this.state.layout;
-    const box = cellBox(layout, cell);
-    const stone = this.state.game.cells[cell];
-    widget.setProperty(hmUI.prop.MORE, {
-      x: box.x,
-      y: box.y,
-      w: box.w,
-      h: box.h,
-      radius: layout.radius,
-      color: stone ? colorForStone(stone) : colorForEmptyCell(this.state.game.topology.edges[cell]),
-    });
+    const game = this.state.game;
+    const color = colorForCell(game.cells, game.topology.edges, cell);
+    this.run(canvas, cellCommands(this.state.layout, cell, color));
   },
 
-  // A dot on the stone played last, so a board of look-alike discs still shows
-  // what just happened. One widget for the life of a game: it is moved, not
-  // recreated.
+  // A dot on the stone played last, so a board of look-alike cells still shows
+  // what just happened. Moving it means painting the cell it was on back first,
+  // because nothing on a canvas can be picked up again once it is drawn.
   markLastMove() {
-    const game = this.state.game;
-    const layout = this.state.layout;
-    const cell = game.lastMove;
-    if (cell < 0) {
+    const canvas = this.state.canvas;
+    const cell = this.state.game.lastMove;
+    if (!canvas || cell < 0) {
       return;
     }
-    const radius = Math.max(2, Math.round(layout.radius * 0.32));
-    const box = {
-      x: layout.centersX[cell] - radius,
-      y: layout.centersY[cell] - radius,
-      w: radius * 2,
-      h: radius * 2,
-      radius,
-      color: COLOR_MARK,
-    };
-    if (this.state.mark) {
-      this.state.mark.setProperty(hmUI.prop.MORE, box);
-      return;
+    const previous = this.state.markedCell;
+    if (previous >= 0 && previous !== cell) {
+      this.paintCell(previous);
     }
-    this.state.mark = hmUI.createWidget(hmUI.widget.FILL_RECT, box);
+    this.run(canvas, markCommands(this.state.layout, cell));
+    this.state.markedCell = cell;
+  },
+
+  // Execute what lib/paint produced. The page knows these two shapes and nothing
+  // else about how the board looks.
+  run(canvas, commands) {
+    for (let i = 0; i < commands.length; i++) {
+      const command = commands[i];
+      if (command.op === "rect") {
+        canvas.drawRect({
+          x1: command.x1,
+          y1: command.y1,
+          x2: command.x2,
+          y2: command.y2,
+          color: command.color,
+        });
+      } else if (command.op === "disc") {
+        canvas.drawCircle({
+          center_x: command.x,
+          center_y: command.y,
+          radius: command.radius,
+          color: command.color,
+        });
+      }
+    }
   },
 
   // ---------------------------------------------------------------- hud ----
@@ -654,15 +634,14 @@ Page({
     }
   },
 
+  // The canvas goes when the board does, and it must: left listening under the
+  // menu it would swallow every tap meant for the buttons drawn on top of it.
   clearBoard() {
-    for (let i = 0; i < this.state.cells.length; i++) {
-      hmUI.deleteWidget(this.state.cells[i]);
+    if (this.state.canvas) {
+      hmUI.deleteWidget(this.state.canvas);
+      this.state.canvas = null;
     }
-    this.state.cells = [];
-    if (this.state.mark) {
-      hmUI.deleteWidget(this.state.mark);
-      this.state.mark = null;
-    }
+    this.state.markedCell = -1;
   },
 
   clearStatus() {

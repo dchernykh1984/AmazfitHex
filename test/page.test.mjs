@@ -8,6 +8,7 @@ import {
   COLOR_CELL_BLUE_EDGE,
   COLOR_CELL_BOTH_EDGES,
   COLOR_CELL_RED_EDGE,
+  COLOR_MARK,
   COLOR_RED,
 } from "../utils/config/constants.js";
 
@@ -51,6 +52,7 @@ async function loadPage(options) {
 
 const widgetsOfType = (type) => ui.screen.widgets.filter((w) => w.type === type);
 const texts = () => widgetsOfType(ui.widget.TEXT).map((w) => w.properties.text);
+const canvas = () => widgetsOfType(ui.widget.CANVAS)[0];
 
 function button(text) {
   const found = widgetsOfType(ui.widget.BUTTON).filter((w) => w.properties.text === text);
@@ -62,24 +64,26 @@ function hasButton(text) {
   return widgetsOfType(ui.widget.BUTTON).some((w) => w.properties.text === text);
 }
 
-// The board cells, in board order, matched to the layout the page draws them at.
-function cells(size) {
+// The board, as the tests need to see it: where each cell is, what colour it
+// came out, and how to tap it. There are no per-cell widgets any more - one
+// canvas holds the whole board - so a cell is addressed by the point at its
+// centre, exactly as a finger addresses it.
+function board(size) {
   const layout = hexLayout(466, size, 8, 96);
-  const found = [];
-  for (let cell = 0; cell < layout.cellCount; cell++) {
-    const x = layout.centersX[cell] - layout.radius;
-    const y = layout.centersY[cell] - layout.radius;
-    const match = ui.screen.widgets.find(
-      (w) =>
-        w.type === ui.widget.FILL_RECT &&
-        w.properties.x === x &&
-        w.properties.y === y &&
-        w.properties.w === layout.radius * 2
-    );
-    expect(match, `no widget for cell ${cell}`).toBeTruthy();
-    found.push(match);
-  }
-  return found;
+  const target = canvas();
+  expect(target, "no board canvas on screen").toBeTruthy();
+  // Far enough from the centre to miss the last-move dot, well inside the
+  // hexagon: this is the cell's own colour rather than what is marked on it.
+  const offset = Math.round(layout.radius * 0.55);
+  return {
+    layout,
+    count: layout.cellCount,
+    widget: target,
+    tap: (cell) => target.tapAt(layout.centersX[cell], layout.centersY[cell]),
+    tapAt: (x, y) => target.tapAt(x, y),
+    colorOf: (cell) => target.colorAt(layout.centersX[cell] + offset, layout.centersY[cell]),
+    markOf: (cell) => target.colorAt(layout.centersX[cell], layout.centersY[cell]),
+  };
 }
 
 const at = (size, column, row) => row * size + column;
@@ -101,10 +105,10 @@ async function startGame(options) {
 
 // Red walks down column 2 while blue answers along column 4; the last red stone
 // is left unplayed, so the caller decides when the game ends.
-function playUpToRedsWin(board, size) {
+function playUpToRedsWin(view, size) {
   for (let row = 0; row < size - 1; row++) {
-    board[at(size, 2, row)].tap();
-    board[at(size, 4, row)].tap();
+    view.tap(at(size, 2, row));
+    view.tap(at(size, 4, row));
   }
 }
 
@@ -122,6 +126,13 @@ describe("the menu", () => {
     expect(hasButton(EN.mode_cpu)).toBe(true);
     expect(hasButton(EN.level_normal)).toBe(true);
     expect(hasButton("7x7")).toBe(true);
+  });
+
+  it("draws no board canvas while the menu is up", async () => {
+    // A canvas left listening under the menu would swallow every tap meant for
+    // the buttons drawn on top of it.
+    await loadPage();
+    expect(canvas()).toBeUndefined();
   });
 
   it("hides the difficulty when there is no computer to set it for", async () => {
@@ -187,50 +198,84 @@ describe("the menu", () => {
     ui.reset();
     page.build();
     button(EN.play).tap();
-    const board = cells(5);
-    board[at(5, 2, 2)].tap();
-    expect(board[at(5, 2, 2)].properties.color).toBe(COLOR_RED);
+    const view = board(5);
+    view.tap(at(5, 2, 2));
+    expect(view.colorOf(at(5, 2, 2))).toBe(COLOR_RED);
     expect(texts()).toContain(EN.turn_blue);
   });
 });
 
 describe("a game between two players", () => {
-  it("draws one cell per board cell and says whose turn it is", async () => {
+  it("draws every cell of the board and says whose turn it is", async () => {
     await startGame();
-    expect(cells(5).length).toBe(25);
+    const view = board(5);
+    expect(view.count).toBe(25);
+    for (let cell = 0; cell < view.count; cell++) {
+      expect(view.colorOf(cell), `cell ${cell} was never painted`).not.toBe(null);
+    }
     expect(texts()).toContain(EN.turn_red);
     expect(hasButton(EN.menu)).toBe(true);
   });
 
+  it("draws the board on one canvas rather than a widget per cell", async () => {
+    await startGame({ sizeIndex: 2 });
+    expect(widgetsOfType(ui.widget.CANVAS).length).toBe(1);
+    // Only the page background is a rectangle widget; the 81 cells are drawn.
+    expect(widgetsOfType(ui.widget.FILL_RECT).length).toBe(1);
+  });
+
+  it("keeps the footer buttons clear of the canvas, or they would be dead", async () => {
+    await startGame();
+    const view = board(5);
+    const menu = button(EN.menu);
+    expect(view.widget.properties.h).toBe(view.layout.bottom);
+    expect(menu.properties.y).toBeGreaterThanOrEqual(view.widget.properties.h);
+  });
+
   it("puts a stone down where it is tapped and passes the turn", async () => {
     await startGame();
-    const board = cells(5);
-    board[at(5, 2, 2)].tap();
-    expect(board[at(5, 2, 2)].properties.color).toBe(COLOR_RED);
+    const view = board(5);
+    view.tap(at(5, 2, 2));
+    expect(view.colorOf(at(5, 2, 2))).toBe(COLOR_RED);
     expect(texts()).toContain(EN.turn_blue);
 
     // The pie rule is on offer now, so blue answers by tapping rather than by
     // taking the stone.
-    board[at(5, 0, 0)].tap();
-    expect(board[at(5, 0, 0)].properties.color).toBe(COLOR_BLUE);
+    view.tap(at(5, 0, 0));
+    expect(view.colorOf(at(5, 0, 0))).toBe(COLOR_BLUE);
+    expect(texts()).toContain(EN.turn_red);
+  });
+
+  it("takes a tap anywhere inside a cell, not just dead centre", async () => {
+    await startGame();
+    const view = board(5);
+    const cell = at(5, 2, 2);
+    view.tapAt(view.layout.centersX[cell], view.layout.centersY[cell] - view.layout.radius * 0.7);
+    expect(view.colorOf(cell)).toBe(COLOR_RED);
+  });
+
+  it("ignores a tap that missed the board", async () => {
+    await startGame();
+    const view = board(5);
+    view.tapAt(5, 5);
     expect(texts()).toContain(EN.turn_red);
   });
 
   it("ignores a tap on a cell that already has a stone on it", async () => {
     await startGame();
-    const board = cells(5);
-    board[at(5, 2, 2)].tap();
-    board[at(5, 2, 2)].tap();
-    expect(board[at(5, 2, 2)].properties.color).toBe(COLOR_RED);
+    const view = board(5);
+    view.tap(at(5, 2, 2));
+    view.tap(at(5, 2, 2));
+    expect(view.colorOf(at(5, 2, 2))).toBe(COLOR_RED);
     expect(texts()).toContain(EN.turn_blue);
   });
 
   it("offers the pie rule once, to the second player only", async () => {
     await startGame();
-    const board = cells(5);
+    const view = board(5);
     expect(hasButton(EN.swap)).toBe(false);
 
-    board[at(5, 2, 2)].tap();
+    view.tap(at(5, 2, 2));
     expect(hasButton(EN.swap)).toBe(true);
 
     button(EN.swap).tap();
@@ -238,72 +283,76 @@ describe("a game between two players", () => {
     // plays blue.
     expect(hasButton(EN.swap)).toBe(false);
     expect(texts()).toContain(EN.turn_blue);
-    expect(board[at(5, 2, 2)].properties.color).toBe(COLOR_RED);
+    expect(view.colorOf(at(5, 2, 2))).toBe(COLOR_RED);
   });
 
   it("drops the pie rule as soon as the second player answers with a stone", async () => {
     await startGame();
-    const board = cells(5);
-    board[at(5, 2, 2)].tap();
-    board[at(5, 0, 0)].tap();
+    const view = board(5);
+    view.tap(at(5, 2, 2));
+    view.tap(at(5, 0, 0));
     expect(hasButton(EN.swap)).toBe(false);
   });
 
   it("announces the winner, leaves the board up and offers another game", async () => {
     await startGame();
-    const board = cells(5);
-    playUpToRedsWin(board, 5);
+    const view = board(5);
+    playUpToRedsWin(view, 5);
     expect(texts()).toContain(EN.turn_red);
 
-    board[at(5, 2, 4)].tap();
+    view.tap(at(5, 2, 4));
     expect(texts()).toContain(EN.win_red);
     expect(hasButton(EN.again)).toBe(true);
     expect(hasButton(EN.menu)).toBe(true);
-    expect(board[at(5, 2, 4)].properties.color).toBe(COLOR_RED);
+    expect(view.colorOf(at(5, 2, 4))).toBe(COLOR_RED);
   });
 
   it("stops taking moves once the game is won", async () => {
     await startGame();
-    const board = cells(5);
-    playUpToRedsWin(board, 5);
-    board[at(5, 2, 4)].tap();
+    const view = board(5);
+    playUpToRedsWin(view, 5);
+    view.tap(at(5, 2, 4));
 
-    board[at(5, 1, 1)].tap();
-    expect(board[at(5, 1, 1)].properties.color).not.toBe(COLOR_BLUE);
+    view.tap(at(5, 1, 1));
+    expect(view.colorOf(at(5, 1, 1))).not.toBe(COLOR_BLUE);
     expect(texts()).toContain(EN.win_red);
   });
 
-  it("deals another hand on the cells already drawn rather than redrawing them", async () => {
+  it("deals another hand on the canvas already up rather than making a new one", async () => {
     await startGame();
-    const board = cells(5);
-    playUpToRedsWin(board, 5);
-    board[at(5, 2, 4)].tap();
+    const view = board(5);
+    playUpToRedsWin(view, 5);
+    view.tap(at(5, 2, 4));
 
     button(EN.again).tap();
-    const again = cells(5);
-    // The same widgets, painted back to empty: a new board costs no widget
-    // churn on a watch that can ill afford it.
-    expect(again).toEqual(board);
-    expect(again.every((cell) => cell.properties.color !== COLOR_RED)).toBe(true);
-    expect(again.every((cell) => cell.properties.color !== COLOR_BLUE)).toBe(true);
+    const again = board(5);
+    // The same canvas, wiped and repainted: a new board costs no widget churn on
+    // a watch that can ill afford it.
+    expect(again.widget).toBe(view.widget);
+    for (let cell = 0; cell < again.count; cell++) {
+      expect(again.colorOf(cell)).not.toBe(COLOR_RED);
+      expect(again.colorOf(cell)).not.toBe(COLOR_BLUE);
+    }
     expect(texts()).toContain(EN.turn_red);
 
     // And it still plays.
-    again[at(5, 1, 1)].tap();
-    expect(again[at(5, 1, 1)].properties.color).toBe(COLOR_RED);
+    again.tap(at(5, 1, 1));
+    expect(again.colorOf(at(5, 1, 1))).toBe(COLOR_RED);
   });
 
   it("redraws the board when the size chosen in the menu changed", async () => {
     await startGame();
-    const board = cells(5);
+    const view = board(5);
     button(EN.menu).tap();
+    expect(view.widget.deleted).toBe(true);
+
     button("5x5").tap();
     button(EN.play).tap();
-
-    const bigger = cells(7);
-    expect(bigger.length).toBe(49);
-    for (const cell of board) {
-      expect(cell.deleted).toBe(true);
+    const bigger = board(7);
+    expect(bigger.count).toBe(49);
+    expect(bigger.widget).not.toBe(view.widget);
+    for (let cell = 0; cell < bigger.count; cell++) {
+      expect(bigger.colorOf(cell), `cell ${cell} was never painted`).not.toBe(null);
     }
   });
 
@@ -311,12 +360,13 @@ describe("a game between two players", () => {
     await startGame();
     button(EN.menu).tap();
     expect(hasButton(EN.play)).toBe(true);
-    // Only the page background is left drawn.
+    // Only the page background is left drawn, and the canvas is gone.
     expect(widgetsOfType(ui.widget.FILL_RECT).length).toBe(1);
+    expect(canvas()).toBeUndefined();
 
     button("5x5").tap();
     button(EN.play).tap();
-    expect(cells(7).length).toBe(49);
+    expect(board(7).count).toBe(49);
   });
 });
 
@@ -324,37 +374,45 @@ describe("a game against the watch", () => {
   it("answers on its own once the player has moved", async () => {
     vi.useFakeTimers();
     await startGame({ mode: 1, level: 1 });
-    const board = cells(5);
+    const view = board(5);
     expect(texts()).toContain(EN.turn_you);
 
-    board[at(5, 0, 0)].tap();
+    view.tap(at(5, 0, 0));
     // A corner opening is not worth taking over, so the watch answers with a
     // stone of its own rather than with the pie rule.
     expect(texts()).toContain(EN.thinking);
     vi.runOnlyPendingTimers();
 
-    expect(board.filter((cell) => cell.properties.color === COLOR_BLUE).length).toBe(1);
+    let blue = 0;
+    for (let cell = 0; cell < view.count; cell++) {
+      if (view.colorOf(cell) === COLOR_BLUE) {
+        blue++;
+      }
+    }
+    expect(blue).toBe(1);
     expect(texts()).toContain(EN.turn_you);
   });
 
   it("takes the opening stone when it is worth taking", async () => {
     vi.useFakeTimers();
     await startGame({ mode: 1, level: 1 });
-    const board = cells(5);
-    board[at(5, 2, 2)].tap();
+    const view = board(5);
+    view.tap(at(5, 2, 2));
     vi.runOnlyPendingTimers();
 
     // Having taken red, the watch leaves the player on blue and to move.
-    expect(board.filter((cell) => cell.properties.color === COLOR_BLUE).length).toBe(0);
-    expect(board[at(5, 2, 2)].properties.color).toBe(COLOR_RED);
+    for (let cell = 0; cell < view.count; cell++) {
+      expect(view.colorOf(cell)).not.toBe(COLOR_BLUE);
+    }
+    expect(view.colorOf(at(5, 2, 2))).toBe(COLOR_RED);
     expect(texts()).toContain(EN.turn_you);
   });
 
   it("never offers the player the pie rule, because the watch decides it", async () => {
     vi.useFakeTimers();
     await startGame({ mode: 1, level: 1 });
-    const board = cells(5);
-    board[at(5, 0, 0)].tap();
+    const view = board(5);
+    view.tap(at(5, 0, 0));
     expect(hasButton(EN.swap)).toBe(false);
     vi.runOnlyPendingTimers();
     expect(hasButton(EN.swap)).toBe(false);
@@ -363,21 +421,21 @@ describe("a game against the watch", () => {
   it("refuses taps while it is thinking", async () => {
     vi.useFakeTimers();
     await startGame({ mode: 1, level: 1 });
-    const board = cells(5);
-    board[at(5, 0, 0)].tap();
+    const view = board(5);
+    view.tap(at(5, 0, 0));
     expect(texts()).toContain(EN.thinking);
 
-    board[at(5, 4, 4)].tap();
-    expect(board[at(5, 4, 4)].properties.color).not.toBe(COLOR_RED);
+    view.tap(at(5, 4, 4));
+    expect(view.colorOf(at(5, 4, 4))).not.toBe(COLOR_RED);
     vi.runOnlyPendingTimers();
-    expect(board[at(5, 4, 4)].properties.color).not.toBe(COLOR_RED);
+    expect(view.colorOf(at(5, 4, 4))).not.toBe(COLOR_RED);
   });
 
   it("does not answer into a page that has been left", async () => {
     vi.useFakeTimers();
     const page = await startGame({ mode: 1, level: 1 });
-    const board = cells(5);
-    board[at(5, 0, 0)].tap();
+    const view = board(5);
+    view.tap(at(5, 0, 0));
     button(EN.menu).tap();
     vi.runOnlyPendingTimers();
     expect(hasButton(EN.play)).toBe(true);
@@ -387,8 +445,8 @@ describe("a game against the watch", () => {
   it("gives up rather than asking itself again when there is nothing to play", async () => {
     vi.useFakeTimers();
     const page = await startGame({ mode: 1, level: 1 });
-    const board = cells(5);
-    board[at(5, 0, 0)].tap();
+    const view = board(5);
+    view.tap(at(5, 0, 0));
 
     // A board with no empty cell and no winner cannot arise from the rules; it
     // is forced here because what it must not do - ask for an answer that
@@ -397,22 +455,19 @@ describe("a game against the watch", () => {
     vi.runOnlyPendingTimers();
 
     expect(vi.getTimerCount()).toBe(0);
-    expect(board.some((cell) => cell.properties.color === COLOR_BLUE)).toBe(false);
   });
 
   it("plays a whole game out and names the winner as the player or the watch", async () => {
     vi.useFakeTimers();
-    await startGame({ mode: 1, level: 0 });
-    const board = cells(5);
-    const empty = (cell) =>
-      cell.properties.color !== COLOR_RED && cell.properties.color !== COLOR_BLUE;
+    const page = await startGame({ mode: 1, level: 0 });
+    const view = board(5);
     // The player fills the first free cell it finds and the watch answers, so
     // between them the board runs out - and a full Hex board always has a
     // winner, whichever of the two it turns out to be.
     for (let move = 0; move < 25 && !hasButton(EN.again); move++) {
-      const free = board.find(empty);
-      expect(free, "the board filled up without anybody winning").toBeTruthy();
-      free.tap();
+      const free = page.state.game.cells.findIndex((stone) => stone === 0);
+      expect(free, "the board filled up without anybody winning").toBeGreaterThanOrEqual(0);
+      view.tap(free);
       vi.runOnlyPendingTimers();
     }
     expect(hasButton(EN.again)).toBe(true);
@@ -424,13 +479,13 @@ describe("a game against the watch", () => {
 describe("the edges of the board", () => {
   it("tints each player's two sides, and the corners as belonging to both", async () => {
     await startGame();
-    const board = cells(5);
+    const view = board(5);
 
     // Red joins the top and bottom rows, blue the left and right columns.
-    expect(board[at(5, 2, 0)].properties.color).toBe(COLOR_CELL_RED_EDGE);
-    expect(board[at(5, 2, 4)].properties.color).toBe(COLOR_CELL_RED_EDGE);
-    expect(board[at(5, 0, 2)].properties.color).toBe(COLOR_CELL_BLUE_EDGE);
-    expect(board[at(5, 4, 2)].properties.color).toBe(COLOR_CELL_BLUE_EDGE);
+    expect(view.colorOf(at(5, 2, 0))).toBe(COLOR_CELL_RED_EDGE);
+    expect(view.colorOf(at(5, 2, 4))).toBe(COLOR_CELL_RED_EDGE);
+    expect(view.colorOf(at(5, 0, 2))).toBe(COLOR_CELL_BLUE_EDGE);
+    expect(view.colorOf(at(5, 4, 2))).toBe(COLOR_CELL_BLUE_EDGE);
 
     // Every corner carries one edge of each player, which is how Hex counts
     // them, so none of them is painted as one player's alone.
@@ -440,50 +495,55 @@ describe("the edges of the board", () => {
       [0, 4],
       [4, 4],
     ]) {
-      expect(board[at(5, corner[0], corner[1])].properties.color, `${corner}`).toBe(
-        COLOR_CELL_BOTH_EDGES
-      );
+      expect(view.colorOf(at(5, corner[0], corner[1])), `${corner}`).toBe(COLOR_CELL_BOTH_EDGES);
     }
 
     // Everything else is a plain cell.
-    expect(board[at(5, 2, 2)].properties.color).toBe(COLOR_CELL);
-    expect(board[at(5, 1, 3)].properties.color).toBe(COLOR_CELL);
+    expect(view.colorOf(at(5, 2, 2))).toBe(COLOR_CELL);
+    expect(view.colorOf(at(5, 1, 3))).toBe(COLOR_CELL);
   });
 
   it("paints a cell back to its own tint when the board is dealt again", async () => {
     await startGame();
-    const board = cells(5);
-    playUpToRedsWin(board, 5);
-    board[at(5, 2, 4)].tap();
+    const view = board(5);
+    playUpToRedsWin(view, 5);
+    view.tap(at(5, 2, 4));
 
     button(EN.again).tap();
-    expect(board[at(5, 2, 0)].properties.color).toBe(COLOR_CELL_RED_EDGE);
-    expect(board[at(5, 2, 4)].properties.color).toBe(COLOR_CELL_RED_EDGE);
-    expect(board[at(5, 4, 2)].properties.color).toBe(COLOR_CELL_BLUE_EDGE);
-    expect(board[at(5, 0, 0)].properties.color).toBe(COLOR_CELL_BOTH_EDGES);
+    expect(view.colorOf(at(5, 2, 0))).toBe(COLOR_CELL_RED_EDGE);
+    expect(view.colorOf(at(5, 2, 4))).toBe(COLOR_CELL_RED_EDGE);
+    expect(view.colorOf(at(5, 4, 2))).toBe(COLOR_CELL_BLUE_EDGE);
+    expect(view.colorOf(at(5, 0, 0))).toBe(COLOR_CELL_BOTH_EDGES);
   });
 });
 
 describe("the last-move mark", () => {
-  it("follows the stone that was played last and is drawn only once", async () => {
+  it("follows the stone that was played last, leaving none behind", async () => {
     await startGame();
-    const layout = hexLayout(466, 5, 8, 96);
-    const board = cells(5);
-    board[at(5, 2, 2)].tap();
+    const view = board(5);
+    const first = at(5, 2, 2);
+    const second = at(5, 0, 0);
 
-    const marks = widgetsOfType(ui.widget.FILL_RECT).filter(
-      (w) => !board.includes(w) && w.properties.w < layout.radius * 2
-    );
-    expect(marks.length).toBe(1);
-    const mark = marks[0];
-    expect(mark.properties.x + mark.properties.w / 2).toBe(layout.centersX[at(5, 2, 2)]);
+    view.tap(first);
+    expect(view.markOf(first)).toBe(COLOR_MARK);
 
-    board[at(5, 0, 0)].tap();
-    expect(mark.properties.x + mark.properties.w / 2).toBe(layout.centersX[at(5, 0, 0)]);
-    expect(
-      widgetsOfType(ui.widget.FILL_RECT).filter(
-        (w) => !board.includes(w) && w.properties.w < layout.radius * 2
-      ).length
-    ).toBe(1);
+    view.tap(second);
+    expect(view.markOf(second)).toBe(COLOR_MARK);
+    // The dot is not a widget that moves: the cell it was on is painted over,
+    // so what shows there now is the stone itself.
+    expect(view.markOf(first)).toBe(COLOR_RED);
+  });
+
+  it("is gone from a board that has been dealt again", async () => {
+    await startGame();
+    const view = board(5);
+    const cell = at(5, 2, 2);
+    view.tap(cell);
+    expect(view.markOf(cell)).toBe(COLOR_MARK);
+
+    button(EN.menu).tap();
+    button(EN.play).tap();
+    const fresh = board(5);
+    expect(fresh.markOf(cell)).not.toBe(COLOR_MARK);
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CELL_RATIO, cellBox, hexLayout } from "../lib/layout/hex-layout.js";
+import { CELL_RATIO, cellInradius, hexLayout } from "../lib/layout/hex-layout.js";
 import { MAX_NEIGHBORS, MAX_SIZE, MIN_SIZE, topologyFor } from "../lib/hex/board.js";
 import { BOARD_SIZES } from "../lib/settings.js";
 import { MIN_CAP, SCREEN_PADDING } from "../utils/config/constants.js";
@@ -54,6 +54,9 @@ describe("hexLayout", () => {
   });
 
   it("never lets two cells overlap", () => {
+    // Hexagons meet along a side, not at a corner, so what must not overlap is
+    // twice the inradius. Their circumscribed circles do overlap, which is why
+    // this is not measured against `radius`.
     for (const size of SIZES) {
       const layout = hexLayout(466, size, PADDING, MIN_CAP);
       const topology = topologyFor(size);
@@ -61,10 +64,20 @@ describe("hexLayout", () => {
         for (let i = 0; i < topology.degree[cell]; i++) {
           const next = topology.neighbors[cell * MAX_NEIGHBORS + i];
           expect(distance(layout, cell, next), `size ${size}: ${cell}-${next}`).toBeGreaterThan(
-            2 * layout.radius
+            2 * cellInradius(layout)
           );
         }
       }
+    }
+  });
+
+  it("leaves a visible gap between neighbouring cells", () => {
+    // Cells drawn at the full hex size would share edges and read as one slab.
+    for (const size of SIZES) {
+      const layout = hexLayout(466, size, PADDING, MIN_CAP);
+      const topology = topologyFor(size);
+      const gap = distance(layout, 0, topology.neighbors[0]) - 2 * cellInradius(layout);
+      expect(gap, `size ${size}`).toBeGreaterThanOrEqual(1);
     }
   });
 
@@ -121,19 +134,9 @@ describe("hexLayout", () => {
     expect(layout.cellCount).toBe(81);
   });
 
-  it("sizes a disc from the hex size it settled on", () => {
+  it("sizes a hexagon from the hex size it settled on", () => {
     const layout = hexLayout(466, 7, PADDING, MIN_CAP);
     expect(layout.radius).toBe(Math.floor(layout.scale * CELL_RATIO));
-  });
-});
-
-describe("cellBox", () => {
-  it("boxes a cell's disc around its centre", () => {
-    const layout = hexLayout(466, 5, PADDING, MIN_CAP);
-    const box = cellBox(layout, 12);
-    expect(box.w).toBe(layout.radius * 2);
-    expect(box.h).toBe(layout.radius * 2);
-    expect(box.x + layout.radius).toBe(layout.centersX[12]);
-    expect(box.y + layout.radius).toBe(layout.centersY[12]);
+    expect(CELL_RATIO).toBeLessThan(1);
   });
 });
