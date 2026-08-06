@@ -38,14 +38,11 @@ describe("app.json", () => {
     expect(appJson.app.appName.length).toBeGreaterThan(0);
   });
 
-  it("derives the store's version code from its own version name", () => {
-    // release-please bumps package.json, and the release build syncs app.json
-    // from it, so the two versions may legitimately differ between a release PR
-    // and the build; what must always hold is that app.json agrees with itself.
-    const parts = appJson.app.version.name.split(".").map(Number);
-    expect(parts.length).toBe(3);
-    expect(appJson.app.version.code).toBe(parts[0] * 10000 + parts[1] * 100 + parts[2]);
-  });
+  // The two version numbers are held together in app-version.test.mjs, against
+  // the script that writes them. Not here, and not as an equality: release-please
+  // writes the name into app.json when it opens a release PR but cannot compute
+  // the code, so between that commit and the build the code is legitimately one
+  // release behind, and demanding they agree would fail every release PR's own CI.
 
   it("is the same project the package is", () => {
     expect(packageJson.name).toBe("amazfit-hex");
