@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -105,10 +105,18 @@ describe("writing the version into app.json", () => {
 describe("running the script", () => {
   const SCRIPT = join(ROOT, "scripts", "sync-app-version.mjs");
 
+  const made = [];
+  afterEach(() => {
+    while (made.length > 0) {
+      rmSync(made.pop(), { recursive: true, force: true });
+    }
+  });
+
   // The script finds its two files relative to itself, so a copy of it beside a
   // package.json and an app.json is a whole miniature checkout to run against.
   function checkout(appVersion, releaseVersion) {
     const dir = mkdtempSync(join(tmpdir(), "app-version-"));
+    made.push(dir);
     mkdirSync(join(dir, "scripts"));
     copyFileSync(SCRIPT, join(dir, "scripts", "sync-app-version.mjs"));
     writeFileSync(
