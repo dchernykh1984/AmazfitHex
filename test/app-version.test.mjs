@@ -1,9 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { describe, it, expect } from "vitest";
+import { execFileSync } from "node:child_process";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { main, syncedAppJson, versionCode } from "../scripts/sync-app-version.mjs";
+import { syncedAppJson, versionCode } from "../scripts/sync-app-version.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => JSON.parse(readFileSync(join(ROOT, file), "utf8"));
@@ -90,57 +91,72 @@ describe("writing the version into app.json", () => {
   });
 });
 
-// A pair of fixture files standing in for a checkout, so the script can be run
-// the way CI runs it without touching the repo's own app.json.
-function checkout(appVersion, releaseVersion) {
-  const dir = mkdtempSync(join(tmpdir(), "app-version-"));
-  const packageFile = join(dir, "package.json");
-  const appFile = join(dir, "app.json");
-  writeFileSync(packageFile, JSON.stringify({ version: releaseVersion }, null, 2) + "\n");
-  writeFileSync(appFile, JSON.stringify({ app: { version: appVersion } }, null, 2) + "\n");
-  return { packageFile, appFile };
-}
+// What CI actually runs is `npm run version:check`, and all it reports is an
+// exit code. Importing the script cannot see that: the check, the exit codes and
+// the guard that decides whether the script does anything at all only exist when
+// it runs as a process, so these run it as one.
+describe("running the script", () => {
+  const SCRIPT = join(ROOT, "scripts", "sync-app-version.mjs");
 
-const versionIn = (file) => JSON.parse(readFileSync(file, "utf8")).app.version;
+  // The script finds its two files relative to itself, so a copy of it beside a
+  // package.json and an app.json is a whole miniature checkout to run against.
+  function checkout(appVersion, releaseVersion) {
+    const dir = mkdtempSync(join(tmpdir(), "app-version-"));
+    mkdirSync(join(dir, "scripts"));
+    copyFileSync(SCRIPT, join(dir, "scripts", "sync-app-version.mjs"));
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ version: releaseVersion }, null, 2) + "\n"
+    );
+    writeFileSync(
+      join(dir, "app.json"),
+      JSON.stringify({ app: { version: appVersion } }, null, 2) + "\n"
+    );
+    return dir;
+  }
 
-describe("what the version check lets through", () => {
-  beforeEach(() => {
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    vi.spyOn(console, "error").mockImplementation(() => {});
+  function run(dir, args) {
+    try {
+      execFileSync(process.execPath, [join(dir, "scripts", "sync-app-version.mjs"), ...args], {
+        stdio: "pipe",
+      });
+      return 0;
+    } catch (error) {
+      return error.status;
+    }
+  }
+
+  const versionIn = (dir) => JSON.parse(readFileSync(join(dir, "app.json"), "utf8")).app.version;
+
+  it("fails the check when app.json's name is behind the release", () => {
+    expect(run(checkout({ code: 200, name: "0.2.0" }, "0.2.1"), ["--check"])).toBe(1);
   });
-  afterEach(() => vi.restoreAllMocks());
 
   // The state every release passes through: release-please has bumped
-  // package.json and written the name into app.json, and cannot compute the
-  // code, so the code is still the previous release's. Failing here would fail
-  // the release PR's own CI and block every release.
-  it("passes a release PR, where the name is bumped and the code is not", () => {
-    const files = checkout({ code: 200, name: "0.2.1" }, "0.2.1");
-    expect(main(["--check"], files)).toBe(0);
+  // package.json and written the name into app.json but cannot compute the code,
+  // so the code is still the previous release's. Failing here would fail the
+  // release PR's own CI and block every release.
+  it("passes the check on a release PR, where the code is one release behind", () => {
+    expect(run(checkout({ code: 200, name: "0.2.1" }, "0.2.1"), ["--check"])).toBe(0);
   });
 
-  it("fails when the two files disagree on the name", () => {
-    const files = checkout({ code: 200, name: "0.2.0" }, "0.2.1");
-    expect(main(["--check"], files)).toBe(1);
-    expect(console.error).toHaveBeenCalled();
+  it("does not touch app.json when it is only checking", () => {
+    const dir = checkout({ code: 200, name: "0.2.0" }, "0.2.1");
+    const before = readFileSync(join(dir, "app.json"), "utf8");
+    run(dir, ["--check"]);
+    expect(readFileSync(join(dir, "app.json"), "utf8")).toBe(before);
   });
 
-  it("leaves app.json alone either way - it reports, it does not repair", () => {
-    const files = checkout({ code: 200, name: "0.2.0" }, "0.2.1");
-    const before = readFileSync(files.appFile, "utf8");
-    main(["--check"], files);
-    expect(readFileSync(files.appFile, "utf8")).toBe(before);
+  it("writes both numbers when run without --check", () => {
+    const dir = checkout({ code: 200, name: "0.2.1" }, "0.2.1");
+    expect(run(dir, [])).toBe(0);
+    expect(versionIn(dir)).toEqual({ code: 201, name: "0.2.1" });
   });
 
-  it("writes both numbers when it is not just checking", () => {
-    const files = checkout({ code: 200, name: "0.2.1" }, "0.2.1");
-    expect(main([], files)).toBe(0);
-    expect(versionIn(files.appFile)).toEqual({ code: 201, name: "0.2.1" });
-  });
-
-  it("refuses a version it cannot pack instead of writing a code that sorts low", () => {
-    const files = checkout({ code: 200, name: "0.2.0" }, "0.100.0");
-    expect(() => main([], files)).toThrow(/under 100/);
+  it("exits non-zero on a version it cannot pack, rather than shipping a low code", () => {
+    const dir = checkout({ code: 200, name: "0.2.0" }, "0.100.0");
+    expect(run(dir, [])).not.toBe(0);
+    expect(versionIn(dir)).toEqual({ code: 200, name: "0.2.0" });
   });
 });
 
