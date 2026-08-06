@@ -6,13 +6,16 @@
     "appType": "app",
     "version": {
       "code": 200,
-      "name": "0.2.0"
+      "name": "0.2.1"
     },
     "icon": "icon.png",
     "vender": "dchernykh1984",
     "description": "The connection game Hex for round Amazfit watches: join your two sides of the board before your opponent joins theirs. Play against the watch on three levels, or pass it back and forth with a friend."
   },
-  "permissions": ["data:os.device.info", "device:os.local_storage"],
+  "permissions": [
+    "data:os.device.info",
+    "device:os.local_storage"
+  ],
   "runtime": {
     "apiVersion": {
       "compatible": "3.0.0",
@@ -24,7 +27,9 @@
     "common": {
       "module": {
         "page": {
-          "pages": ["page/index"]
+          "pages": [
+            "page/index"
+          ]
         }
       },
       "platforms": [

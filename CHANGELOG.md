@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/dchernykh1984/AmazfitHex/compare/amazfit-hex-v0.2.0...amazfit-hex-v0.2.1) (2026-08-06)
+
+
+### Bug Fixes
+
+* report the released version on the watch instead of 0.1.0 ([90d1719](https://github.com/dchernykh1984/AmazfitHex/commit/90d171901267f7a1439608083b89fa95f53377bd))
+* stop demanding app.json's version code match its name on a release PR ([49f5a6e](https://github.com/dchernykh1984/AmazfitHex/commit/49f5a6e83cc261db9e08f6299db0f6ea6344c855))
+
 ## [0.2.0](https://github.com/dchernykh1984/AmazfitHex/compare/amazfit-hex-v0.1.0...amazfit-hex-v0.2.0) (2026-08-04)
 
 
