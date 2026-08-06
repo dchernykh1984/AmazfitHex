@@ -54,10 +54,13 @@ export function syncedAppJson(appText, releaseVersion) {
   return replaceVersion(appText, releaseVersion, versionCode(releaseVersion));
 }
 
-function main(argv) {
+// The files are arguments rather than constants so a test can run the whole
+// thing against a pair of fixtures: what --check lets through is the one
+// decision here that a release depends on, and it is worth pinning.
+export function main(argv, { packageFile = PACKAGE_FILE, appFile = APP_FILE } = {}) {
   const check = argv.includes("--check");
-  const releaseVersion = read(PACKAGE_FILE).version;
-  const app = read(APP_FILE);
+  const releaseVersion = read(packageFile).version;
+  const app = read(appFile);
   const current = app.app.version;
   const wanted = { name: releaseVersion, code: versionCode(releaseVersion) };
 
@@ -88,7 +91,7 @@ function main(argv) {
     return 1;
   }
 
-  writeFileSync(APP_FILE, syncedAppJson(readFileSync(APP_FILE, "utf8"), releaseVersion));
+  writeFileSync(appFile, syncedAppJson(readFileSync(appFile, "utf8"), releaseVersion));
   console.log(
     "app version " +
       current.name +
