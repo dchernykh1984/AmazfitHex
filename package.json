@@ -11,9 +11,11 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
+    "version:sync": "node scripts/sync-app-version.mjs",
+    "version:check": "node scripts/sync-app-version.mjs --check",
     "dev": "npx --yes @zeppos/zeus-cli@1.9.2 dev",
     "preview": "npx --yes @zeppos/zeus-cli@1.9.2 preview",
-    "build": "npx --yes @zeppos/zeus-cli@1.9.2 build"
+    "build": "npm run version:sync && npx --yes @zeppos/zeus-cli@1.9.2 build"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

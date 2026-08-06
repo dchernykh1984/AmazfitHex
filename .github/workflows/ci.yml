@@ -68,3 +68,8 @@ jobs:
         run: npm ci
       - name: Run unit tests
         run: npm test
+      - name: Check the app version is in step with the release
+        # app.json carries the version the watch and the store show. It is written
+        # by release-please when a release PR opens and by the build; this catches
+        # the case where someone edits one of the two files by hand.
+        run: npm run version:check

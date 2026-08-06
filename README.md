@@ -81,6 +81,32 @@ Conventional Commits and, when merged, tags a GitHub Release. The release build
 workflow then produces the `.zab` store bundle and attaches it. Uploading the `.zab`
 to the Zepp App Store stays manual, because Zepp has no public publish API.
 
+### Two version numbers
+
+A Zepp app carries its version in `app.json`, not in `package.json`: `version.name` is
+what a person sees in the store and on the watch, and `version.code` is an integer the
+store insists must grow with every upload or it refuses the build. Neither is what
+`release-please` bumps.
+
+They are kept in step from `package.json`, which is the one `release-please` does own:
+
+- `release-please` writes `version.name` into `app.json` in the release PR itself
+  (`extra-files` in `release-please-config.json`), so the repository never claims a
+  version it did not release.
+- `npm run version:sync` writes both numbers, deriving the code as
+  `major * 10000 + minor * 100 + patch`. The release build runs it before `zeus build`,
+  so a bundle built in CI and one built on a laptop carry the same numbers. It refuses
+  a version it cannot pack - a minor or patch of 100 or more would produce a code that
+  sorts below one already in the store.
+- `npm run version:check` fails if `app.json` and `package.json` disagree on the name,
+  and runs on every pull request. The code is not checked there: `release-please`
+  cannot compute it, so between the release PR and the build it is legitimately one
+  release behind.
+
+`app.json` is in `.prettierignore` for the same reason - `release-please` rewrites it
+with its own JSON formatter, which spreads arrays over lines Prettier would keep
+together, and the two would fight on every release PR.
+
 ## License
 
 Released under the [MIT License](LICENSE).
