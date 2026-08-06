@@ -547,3 +547,29 @@ describe("the last-move mark", () => {
     expect(fresh.markOf(cell)).not.toBe(COLOR_MARK);
   });
 });
+
+describe("the board canvas", () => {
+  it("replaces a canvas left at the wrong height for the board being drawn", async () => {
+    // A canvas is sized when it is created, so one kept from a smaller board
+    // would be too short to draw the last row of a bigger one - and deaf to taps
+    // on it. Reached here by starting a game straight onto a changed layout,
+    // which is what any new caller of startGame would do.
+    const page = await startGame();
+    const small = board(5);
+    const shortCanvas = small.widget;
+
+    page.state.sizeIndex = 2;
+    page.startGame();
+
+    const big = board(9);
+    expect(big.count).toBe(81);
+    expect(big.widget).not.toBe(shortCanvas);
+    expect(shortCanvas.deleted).toBe(true);
+    expect(big.widget.properties.h).toBe(big.layout.bottom);
+    // The bottom row is drawn and takes a tap.
+    const last = big.count - 1;
+    expect(big.colorOf(last)).not.toBe(null);
+    big.tap(last);
+    expect(big.colorOf(last)).toBe(COLOR_RED);
+  });
+});

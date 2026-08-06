@@ -107,6 +107,7 @@ Page({
     // the board canvas as long as a game, and the status line, the footer and
     // the menu as long as a screen.
     canvas: null,
+    canvasHeight: 0,
     // Which cell the last-move dot is currently drawn on. A canvas keeps no
     // scene graph, so moving the dot means painting that cell over first.
     markedCell: -1,
@@ -130,6 +131,7 @@ Page({
     this.state.thinking = false;
     this.state.timer = null;
     this.state.canvas = null;
+    this.state.canvasHeight = 0;
     this.state.markedCell = -1;
     this.state.status = null;
     this.state.footer = [];
@@ -371,6 +373,19 @@ Page({
   // simply dead - so the buttons below the board have to sit outside it. The
   // status line above the board is only text and may overlap safely.
   boardCanvas() {
+    const height = this.state.layout.bottom;
+    // A canvas is sized once, when it is created, so one left over from a board
+    // of a different size would be the wrong height: too short to draw the last
+    // row of a bigger board, and deaf to taps on it. Today every size change
+    // goes through the menu, which drops the canvas - but that is a habit of the
+    // call sites rather than something this function can rely on.
+    //
+    // The height is remembered here rather than read back off the widget: a real
+    // Zepp widget is an opaque handle with no properties to inspect, however
+    // freely the test double lets one be read.
+    if (this.state.canvas && this.state.canvasHeight !== height) {
+      this.clearBoard();
+    }
     if (this.state.canvas) {
       return this.state.canvas;
     }
@@ -378,7 +393,7 @@ Page({
       x: 0,
       y: 0,
       w: SCREEN_SIZE,
-      h: this.state.layout.bottom,
+      h: height,
     });
     try {
       canvas.addEventListener(hmUI.event.CLICK_UP, (info) => this.onBoardTap(info));
@@ -388,6 +403,7 @@ Page({
       // being built and left the screen black.
     }
     this.state.canvas = canvas;
+    this.state.canvasHeight = height;
     return canvas;
   },
 
@@ -640,6 +656,7 @@ Page({
     if (this.state.canvas) {
       hmUI.deleteWidget(this.state.canvas);
       this.state.canvas = null;
+      this.state.canvasHeight = 0;
     }
     this.state.markedCell = -1;
   },
