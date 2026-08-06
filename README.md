@@ -74,6 +74,7 @@ what it drew.
 ## Continuous integration and releases
 
 Every pull request must pass the required checks: Prettier, ESLint, the unit tests,
+`npm run version:check` (that `app.json` still names the version being released),
 `actionlint`, commitizen (Conventional Commits), and an OSV dependency scan.
 
 Releases are automated with `release-please`: it maintains a version-bump PR from the
