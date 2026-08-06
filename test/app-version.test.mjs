@@ -65,15 +65,22 @@ describe("writing the version into app.json", () => {
 
   // The file is edited by hand and read in diffs, so a version bump has to show
   // up as the two lines it is - not as a reformat of the whole document.
+  //
+  // The target is a major above whatever app.json currently holds rather than a
+  // literal: a literal is a version this project eventually releases, and on the
+  // release PR that reaches it app.json already says it, so only the code line
+  // would move and this would fail over nothing.
   it("changes nothing else about the file", () => {
-    const written = syncedAppJson(APP, "1.2.3");
+    const major = Number(JSON.parse(APP).app.version.name.split(".")[0]);
+    const bumped = major + 1 + ".2.3";
+    const written = syncedAppJson(APP, bumped);
     const before = APP.split("\n");
     const after = written.split("\n");
 
     expect(after.length).toBe(before.length);
     const changed = after.filter((line, i) => line !== before[i]);
     expect(changed.length).toBe(2);
-    expect(changed.join(" ")).toContain("1.2.3");
+    expect(changed.join(" ")).toContain(bumped);
   });
 
   it("leaves everything but the version untouched", () => {
