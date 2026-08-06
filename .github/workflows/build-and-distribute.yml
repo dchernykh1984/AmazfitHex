@@ -56,17 +56,11 @@ jobs:
         run: npm install -g @zeppos/zeus-cli@1.9.2
 
       - name: Set the Zepp app version from package.json
-        # release-please bumps package.json but not app.json - its JSON updater
-        # reformats app.json in a way prettier rejects. Sync the version here
-        # instead: name = the release version, code = an ever-increasing integer the
-        # store needs, derived from the semver as major*10000 + minor*100 + patch.
-        run: |
-          name="$(node -p "require('./package.json').version")"
-          IFS='.' read -r major minor patch <<< "$name"
-          code=$(( 10#$major * 10000 + 10#$minor * 100 + 10#$patch ))
-          tmp="$(mktemp)"
-          jq --arg name "$name" --argjson code "$code" '.app.version.name = $name | .app.version.code = $code' app.json > "$tmp" && mv "$tmp" app.json
-          echo "app version: name=$name code=$code"
+        # release-please writes the version name into app.json when it opens the
+        # release PR, but the store also needs version.code, an ever-increasing
+        # integer it cannot compute. The script derives both from package.json, so
+        # a bundle built here and one built on a laptop carry the same numbers.
+        run: npm run version:sync
 
       - name: Build the store bundle (.zab)
         run: zeus build

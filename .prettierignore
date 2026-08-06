@@ -4,3 +4,8 @@ build/
 coverage/
 package-lock.json
 CHANGELOG.md
+# release-please writes the release version into app.json and rewrites the file
+# with its own JSON formatter, which expands arrays prettier would keep on one
+# line. Formatting it here would fail the release PR's own checks over a file
+# nobody hand-formats anyway.
+app.json

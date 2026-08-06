@@ -3,7 +3,8 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "package-name": "amazfit-hex"
+      "package-name": "amazfit-hex",
+      "extra-files": [{ "type": "json", "path": "app.json", "jsonpath": "$.app.version.name" }]
     }
   }
 }
