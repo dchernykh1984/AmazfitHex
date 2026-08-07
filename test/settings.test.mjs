@@ -9,16 +9,26 @@ import {
   MODE_KEY,
   MODE_TWO_PLAYERS,
   SIZE_KEY,
+  SWAP_CHOICES,
+  SWAP_KEY,
+  SWAP_OFF,
+  SWAP_ON,
+  DEFAULT_SWAP,
   boardSizeFor,
   boardSizeLabel,
   clampIndex,
   clampMode,
   clampSizeIndex,
+  clampSwap,
   nextIndex,
   nextMode,
   nextSizeIndex,
+  nextSwap,
+  swapLabelKey,
+  swapRuleEnabled,
 } from "../lib/settings.js";
 import { MAX_SIZE, MIN_SIZE } from "../lib/hex/board.js";
+import { UI_KEYS } from "../lib/i18n/keys.js";
 
 describe("storage keys", () => {
   it("keeps each setting under its own name", () => {
@@ -125,5 +135,43 @@ describe("the board size", () => {
   it("clamps a stored index left behind by another build", () => {
     expect(boardSizeFor(99)).toBe(BOARD_SIZES[DEFAULT_SIZE_INDEX]);
     expect(boardSizeLabel(-1)).toBe(boardSizeLabel(DEFAULT_SIZE_INDEX));
+  });
+});
+
+describe("the pie rule setting", () => {
+  it("offers exactly on and off, and starts on", () => {
+    expect(SWAP_CHOICES).toEqual([SWAP_OFF, SWAP_ON]);
+    expect(DEFAULT_SWAP).toBe(SWAP_ON);
+    expect(swapRuleEnabled(undefined)).toBe(true);
+  });
+
+  it("cycles between the two", () => {
+    expect(nextSwap(SWAP_ON)).toBe(SWAP_OFF);
+    expect(nextSwap(SWAP_OFF)).toBe(SWAP_ON);
+  });
+
+  it("reads a stored zero as off rather than as nothing stored", () => {
+    expect(swapRuleEnabled(SWAP_OFF)).toBe(false);
+    expect(swapRuleEnabled("0")).toBe(false);
+    expect(swapRuleEnabled(SWAP_ON)).toBe(true);
+  });
+
+  it("clamps anything unusable back to the default", () => {
+    expect(clampSwap(7)).toBe(DEFAULT_SWAP);
+    expect(clampSwap("nonsense")).toBe(DEFAULT_SWAP);
+    expect(clampSwap(null)).toBe(DEFAULT_SWAP);
+  });
+
+  it("names a button that says which way it is set", () => {
+    expect(swapLabelKey(SWAP_ON)).toBe("swap_on");
+    expect(swapLabelKey(SWAP_OFF)).toBe("swap_off");
+    expect(UI_KEYS).toContain(swapLabelKey(SWAP_ON));
+    expect(UI_KEYS).toContain(swapLabelKey(SWAP_OFF));
+  });
+
+  it("keeps its own place in storage", () => {
+    expect([MODE_KEY, LEVEL_KEY, SIZE_KEY, SWAP_KEY].length).toBe(
+      new Set([MODE_KEY, LEVEL_KEY, SIZE_KEY, SWAP_KEY]).size
+    );
   });
 });

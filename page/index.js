@@ -39,12 +39,17 @@ import {
   MODE_COMPUTER,
   MODE_KEY,
   SIZE_KEY,
+  SWAP_KEY,
   boardSizeFor,
   boardSizeLabel,
   clampMode,
   clampSizeIndex,
+  clampSwap,
   nextMode,
   nextSizeIndex,
+  nextSwap,
+  swapLabelKey,
+  swapRuleEnabled,
 } from "../lib/settings.js";
 import { SCREEN_SIZE } from "../utils/config/device.js";
 import {
@@ -146,6 +151,7 @@ Page({
     mode: MODE_COMPUTER,
     level: 1,
     sizeIndex: 1,
+    swap: 1,
     // "menu" while the settings are on screen, "playing" during a game, "over"
     // once it is won. The finished board is left visible rather than covered, so
     // the winning chain can be looked at.
@@ -221,6 +227,7 @@ Page({
     this.state.mode = clampMode(readValue(storage, MODE_KEY));
     this.state.level = clampLevel(readValue(storage, LEVEL_KEY));
     this.state.sizeIndex = clampSizeIndex(readValue(storage, SIZE_KEY));
+    this.state.swap = clampSwap(readValue(storage, SWAP_KEY));
 
     hmUI.createWidget(hmUI.widget.FILL_RECT, {
       x: 0,
@@ -284,6 +291,13 @@ Page({
     items.push({
       kind: "button",
       height: BUTTON_HEIGHT,
+      text: this.text(swapLabelKey(this.state.swap)),
+      onClick: () => this.cycleSwap(),
+    });
+    items.push({ kind: "gap", height: STACK_GAP });
+    items.push({
+      kind: "button",
+      height: BUTTON_HEIGHT,
       text: this.text("play"),
       onClick: () => this.startGame(),
     });
@@ -311,13 +325,19 @@ Page({
     this.showMenu();
   },
 
+  cycleSwap() {
+    this.state.swap = nextSwap(this.state.swap);
+    writeValue(this.state.storage, SWAP_KEY, this.state.swap);
+    this.showMenu();
+  },
+
   startGame() {
     this.stopTimer();
     this.clearMenu();
     this.state.screen = "playing";
     this.state.thinking = false;
     const size = boardSizeFor(this.state.sizeIndex);
-    this.state.game = createGame(size);
+    this.state.game = createGame(size, { swapRule: swapRuleEnabled(this.state.swap) });
     this.state.layout = hexLayout(SCREEN_SIZE, size);
     this.resetPan();
     this.state.panLimit = panLimits(this.state.layout, VIEW.w, VIEW.h);
