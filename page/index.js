@@ -176,6 +176,11 @@ Page({
     startPanX: 0,
     startPanY: 0,
     dragged: false,
+    // How far the canvas widget itself is currently shifted from where it lives.
+    // A drag slides the widget, which costs one property write; the hexagons on
+    // it are only repainted once, when the finger lifts.
+    slideX: 0,
+    slideY: 0,
     // Widgets, grouped by lifetime: the background lives as long as the page,
     // the board canvas as long as a game, and the status line, the footer and
     // the menu as long as a screen.
@@ -357,8 +362,25 @@ Page({
   resetPan() {
     this.state.panX = 0;
     this.state.panY = 0;
+    this.state.slideX = 0;
+    this.state.slideY = 0;
     this.state.touching = false;
     this.state.dragged = false;
+  },
+
+  // Put the canvas back where it belongs, plus whatever a drag in progress has
+  // slid it by. Moving the widget is the cheap half of panning: repainting the
+  // board costs a hundred times as much, so it waits until the finger is up.
+  placeCanvas() {
+    if (!this.state.canvas) {
+      return;
+    }
+    this.state.canvas.setProperty(hmUI.prop.MORE, {
+      x: VIEW.x + this.state.slideX,
+      y: VIEW.y + this.state.slideY,
+      w: VIEW.w,
+      h: VIEW.h,
+    });
   },
 
   // ---------------------------------------------------------------- moves ----
@@ -562,9 +584,11 @@ Page({
     }
     this.state.dragged = true;
     const limit = this.state.panLimit;
-    this.state.panX = clampPan(this.state.startPanX + dx, limit.x);
-    this.state.panY = clampPan(this.state.startPanY + dy, limit.y);
-    this.drawBoard();
+    const wantX = clampPan(this.state.startPanX + dx, limit.x);
+    const wantY = clampPan(this.state.startPanY + dy, limit.y);
+    this.state.slideX = wantX - this.state.panX;
+    this.state.slideY = wantY - this.state.panY;
+    this.placeCanvas();
   },
 
   onTouchUp(info) {
@@ -574,9 +598,23 @@ Page({
     this.state.touching = false;
     if (this.state.dragged) {
       this.state.dragged = false;
+      // Fold the slide into the pan and repaint once, which fills back in the
+      // edges the slide left blank.
+      this.state.panX += this.state.slideX;
+      this.state.panY += this.state.slideY;
+      this.state.slideX = 0;
+      this.state.slideY = 0;
+      this.placeCanvas();
+      this.drawBoard();
       return;
     }
-    const cell = cellAt(this.state.layout, this.originX(), this.originY(), info.x, info.y);
+    const cell = cellAt(
+      this.state.layout,
+      this.originX() + this.state.slideX,
+      this.originY() + this.state.slideY,
+      info.x,
+      info.y
+    );
     if (cell >= 0) {
       this.placeStone(cell);
     }
@@ -595,6 +633,9 @@ Page({
     const pan = panToCell(layout, cell, VIEW.w, VIEW.h);
     this.state.panX = pan.x;
     this.state.panY = pan.y;
+    this.state.slideX = 0;
+    this.state.slideY = 0;
+    this.placeCanvas();
   },
 
   // ---------------------------------------------------------------- hud ----

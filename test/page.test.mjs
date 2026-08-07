@@ -347,11 +347,36 @@ describe("dragging the board", () => {
 
   it("moves a bigger board under the finger", async () => {
     const page = await startGame({ sizeIndex: 2 });
+    const home = canvas().properties.x;
+
     canvas().fire(ui.event.CLICK_DOWN, { x: 233, y: 137 });
     canvas().fire(ui.event.MOVE, { x: 233 - 40, y: 137 - 30 });
+    // Mid-drag the canvas itself has slid; repainting what is on it costs a
+    // hundred times as much and waits for the finger to lift.
+    expect(page.state.slideX).toBe(-40);
+    expect(page.state.slideY).toBe(-30);
+    expect(canvas().properties.x).toBe(home - 40);
+
+    canvas().fire(ui.event.CLICK_UP, { x: 233 - 40, y: 137 - 30 });
     expect(page.state.panX).toBe(-40);
     expect(page.state.panY).toBe(-30);
-    canvas().fire(ui.event.CLICK_UP, { x: 233 - 40, y: 137 - 30 });
+    expect(page.state.slideX).toBe(0);
+    expect(canvas().properties.x).toBe(home);
+  });
+
+  it("repaints once, when the finger lifts, rather than on every step", async () => {
+    const page = await startGame({ sizeIndex: 2 });
+    canvas().fire(ui.event.CLICK_DOWN, { x: 233, y: 137 });
+    const before = canvas().draws.filter((draw) => draw.op === "clear").length;
+
+    for (let step = 1; step <= 5; step += 1) {
+      canvas().fire(ui.event.MOVE, { x: 233 - step * 12, y: 137 });
+    }
+    expect(canvas().draws.filter((draw) => draw.op === "clear").length).toBe(before);
+
+    canvas().fire(ui.event.CLICK_UP, { x: 233 - 60, y: 137 });
+    expect(canvas().draws.filter((draw) => draw.op === "clear").length).toBe(before + 1);
+    expect(page.state.panX).toBe(-60);
   });
 
   it("never drags the board off its own edge", async () => {
@@ -363,16 +388,23 @@ describe("dragging the board", () => {
     expect(page.state.panY).toBe(limits.y);
   });
 
-  it("redraws as the board moves", async () => {
+  it("brings different cells on screen once the drag is done", async () => {
     const page = await startGame({ sizeIndex: 2 });
     const layout = hexLayout(SCREEN, 9);
     const before = drawnCells(layout, page);
-    canvas().fire(ui.event.CLICK_DOWN, { x: 233, y: 137 });
-    canvas().fire(ui.event.MOVE, { x: 233 + 100, y: 137 });
+    drag(page, { x: 233, y: 137 }, 100, 0);
     const after = drawnCells(layout, page);
-    canvas().fire(ui.event.CLICK_UP, { x: 233 + 100, y: 137 });
-    // Different cells are on screen than were before the drag.
     expect([...after.keys()].join()).not.toBe([...before.keys()].join());
+  });
+
+  it("puts the stone under the finger even when the board has been dragged", async () => {
+    const page = await startGame({ sizeIndex: 2 });
+    const layout = hexLayout(SCREEN, 9);
+    drag(page, { x: 233, y: 137 }, 80, 40);
+
+    const cell = at(9, 4, 4);
+    tap(page, layout, cell);
+    expect(drawnCells(layout, page).get(cell).color).toBe(COLOR_RED);
   });
 
   it("ignores a wobble too small to be a drag, so it still counts as a tap", async () => {
