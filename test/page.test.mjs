@@ -1,6 +1,13 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { LABELS } from "../lib/i18n/labels.js";
-import { MODE_KEY, MODE_TWO_PLAYERS, SIZE_KEY, LEVEL_KEY } from "../lib/settings.js";
+import {
+  MODE_KEY,
+  MODE_TWO_PLAYERS,
+  SIZE_KEY,
+  LEVEL_KEY,
+  SWAP_KEY,
+  SWAP_OFF,
+} from "../lib/settings.js";
 import { cellCenterX, cellCenterY, hexLayout, panLimits } from "../lib/layout/hex-layout.js";
 import {
   COLOR_BLUE,
@@ -131,6 +138,7 @@ async function startGame(options) {
       [MODE_KEY]: config.mode === undefined ? MODE_TWO_PLAYERS : config.mode,
       [SIZE_KEY]: config.sizeIndex === undefined ? 0 : config.sizeIndex,
       [LEVEL_KEY]: config.level === undefined ? 1 : config.level,
+      [SWAP_KEY]: config.swap === undefined ? 1 : config.swap,
     },
   });
   button(EN.play).tap();
@@ -160,6 +168,18 @@ describe("the menu", () => {
     expect(hasButton(EN.mode_cpu)).toBe(true);
     expect(hasButton(EN.level_normal)).toBe(true);
     expect(hasButton("7x7")).toBe(true);
+  });
+
+  it("offers the pie rule as a setting and remembers it", async () => {
+    await loadPage();
+    expect(hasButton(EN.swap_on)).toBe(true);
+
+    button(EN.swap_on).tap();
+    expect(hasButton(EN.swap_off)).toBe(true);
+    expect(storage.stored()[SWAP_KEY]).toBe(SWAP_OFF);
+
+    await loadPage({ stored: storage.stored() });
+    expect(hasButton(EN.swap_off)).toBe(true);
   });
 
   it("hides the difficulty when there is no computer to set it for", async () => {
@@ -447,6 +467,14 @@ describe("a game between two players", () => {
     expect(hasButton(EN.swap)).toBe(false);
     expect(texts()).toContain(EN.turn_blue);
     expect(drawnCells(layout, page).get(at(5, 2, 2)).color).toBe(COLOR_RED);
+  });
+
+  it("never offers the swap when the setting is off", async () => {
+    const page = await startGame({ swap: SWAP_OFF });
+    const layout = hexLayout(SCREEN, 5);
+    tap(page, layout, at(5, 2, 2));
+    expect(hasButton(EN.swap)).toBe(false);
+    expect(texts()).toContain(EN.turn_blue);
   });
 
   it("drops the pie rule as soon as the second player answers with a stone", async () => {
