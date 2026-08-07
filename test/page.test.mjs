@@ -465,8 +465,26 @@ describe("a game between two players", () => {
 
     button(EN.swap).tap();
     expect(hasButton(EN.swap)).toBe(false);
-    expect(texts()).toContain(EN.turn_blue);
+    // The stone stays put and keeps its colour; what changed is whose it is,
+    // which is why the screen says so rather than showing the turn as usual.
+    expect(texts()).toContain(EN.swapped);
     expect(drawnCells(layout, page).get(at(5, 2, 2)).color).toBe(COLOR_RED);
+  });
+
+  it("says so when a side swap happens, then goes back to whose turn it is", async () => {
+    const page = await startGame();
+    const layout = hexLayout(SCREEN, 5);
+    tap(page, layout, at(5, 2, 2));
+    button(EN.swap).tap();
+
+    // A swap changes nothing you can see on the board, so the screen has to say
+    // it happened - and say it in the colour the player to move is now on.
+    expect(texts()).toContain(EN.swapped);
+    expect(texts()).not.toContain(EN.turn_blue);
+
+    tap(page, layout, at(5, 0, 0));
+    expect(texts()).not.toContain(EN.swapped);
+    expect(texts()).toContain(EN.turn_red);
   });
 
   it("never offers the swap when the setting is off", async () => {
@@ -552,6 +570,25 @@ describe("a game against the watch", () => {
     const blue = [...drawnCells(layout, page).values()].filter((draw) => draw.color === COLOR_BLUE);
     expect(blue.length).toBe(1);
     expect(texts()).toContain(EN.turn_you);
+  });
+
+  it("says so when the watch takes the opening stone", async () => {
+    vi.useFakeTimers();
+    const page = await startGame({ mode: 1, level: 1 });
+    const layout = hexLayout(SCREEN, 5);
+
+    tap(page, layout, at(5, 2, 2));
+    vi.runOnlyPendingTimers();
+
+    // The watch answered by taking the stone rather than by playing one, which
+    // without a word on screen looks exactly like a move that went nowhere.
+    expect(page.state.swapped).toBe(true);
+    expect(texts()).toContain(EN.swapped);
+    const blue = [...drawnCells(layout, page).values()].filter((draw) => draw.color === COLOR_BLUE);
+    expect(blue.length).toBe(0);
+
+    tap(page, layout, at(5, 0, 0));
+    expect(texts()).not.toContain(EN.swapped);
   });
 
   it("refuses taps while it is thinking", async () => {

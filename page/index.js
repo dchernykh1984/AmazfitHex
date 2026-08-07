@@ -159,6 +159,10 @@ Page({
     game: null,
     layout: null,
     thinking: false,
+    // Set when the pie rule has just been used, so the screen can say so. A swap
+    // is otherwise invisible: the stone stays where it was and keeps its colour,
+    // and all that changes is which side of it each player is on.
+    swapped: false,
     timer: null,
     destroyed: false,
     // Where the middle of the board has been dragged to, relative to the middle
@@ -194,6 +198,7 @@ Page({
     this.state.game = null;
     this.state.layout = null;
     this.state.thinking = false;
+    this.state.swapped = false;
     this.state.timer = null;
     this.resetPan();
     this.state.canvas = null;
@@ -256,6 +261,7 @@ Page({
     this.stopTimer();
     this.state.screen = "menu";
     this.state.thinking = false;
+    this.state.swapped = false;
     this.state.game = null;
     this.clearBoard();
     this.clearStatus();
@@ -336,6 +342,7 @@ Page({
     this.clearMenu();
     this.state.screen = "playing";
     this.state.thinking = false;
+    this.state.swapped = false;
     const size = boardSizeFor(this.state.sizeIndex);
     this.state.game = createGame(size, { swapRule: swapRuleEnabled(this.state.swap) });
     this.state.layout = hexLayout(SCREEN_SIZE, size);
@@ -374,6 +381,8 @@ Page({
     if (!play(game, cell)) {
       return;
     }
+    // The player has answered, so the notice has been read.
+    this.state.swapped = false;
     this.drawBoard();
     this.afterMove();
   },
@@ -386,6 +395,7 @@ Page({
     if (!this.isHumanSeat(seatToMove(game)) || !swapSides(game)) {
       return;
     }
+    this.state.swapped = true;
     this.afterMove();
   },
 
@@ -422,6 +432,7 @@ Page({
     let answered = false;
     if (canSwap(game) && shouldSwap(game)) {
       answered = swapSides(game);
+      this.state.swapped = answered;
     } else {
       const move = chooseMove(game, { level: this.state.level });
       if (move >= 0 && play(game, move)) {
@@ -604,6 +615,11 @@ Page({
       return { key: "thinking", color: COLOR_MUTED };
     }
     const versusWatch = this.state.mode === MODE_COMPUTER;
+    // Said once, in the colour whoever is now to move will be playing, so the
+    // notice also answers the question it raises: which side am I on now?
+    if (this.state.swapped && !isFinished(game)) {
+      return { key: "swapped", color: colorForStone(game.turn) };
+    }
     if (isFinished(game)) {
       const color = colorForStone(game.winner);
       if (versusWatch) {
