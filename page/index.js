@@ -558,6 +558,16 @@ Page({
 
   // ---------------------------------------------------------------- touch ----
 
+  // A touch is reported in screen coordinates, while the board is drawn in the
+  // canvas's own - and mid-drag the canvas is itself slid away from where it
+  // lives. Both are taken back off before a point is matched to a hexagon.
+  boardPoint(info) {
+    return {
+      x: info.x - VIEW.x - this.state.slideX,
+      y: info.y - VIEW.y - this.state.slideY,
+    };
+  },
+
   onTouchDown(info) {
     if (this.state.screen === "menu" || !this.state.layout) {
       return;
@@ -608,13 +618,8 @@ Page({
       this.drawBoard();
       return;
     }
-    const cell = cellAt(
-      this.state.layout,
-      this.originX() + this.state.slideX,
-      this.originY() + this.state.slideY,
-      info.x,
-      info.y
-    );
+    const point = this.boardPoint(info);
+    const cell = cellAt(this.state.layout, this.originX(), this.originY(), point.x, point.y);
     if (cell >= 0) {
       this.placeStone(cell);
     }

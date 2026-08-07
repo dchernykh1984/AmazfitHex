@@ -109,11 +109,14 @@ function drawnCells(layout, page) {
 
 const at = (size, column, row) => row * size + column;
 
-// The screen point the middle of a cell is currently at.
+// The screen point the middle of a cell is currently at. The board is drawn in
+// the canvas's own coordinates and the canvas sits below the status cap, so a
+// touch reported by the watch carries that offset - and the slide of a drag in
+// progress on top of it.
 function pointOf(layout, page, cell) {
   return {
-    x: cellCenterX(layout, cell, MIDDLE_X + page.state.panX),
-    y: cellCenterY(layout, cell, MIDDLE_Y + page.state.panY),
+    x: cellCenterX(layout, cell, MIDDLE_X + page.state.panX) + page.state.slideX,
+    y: cellCenterY(layout, cell, MIDDLE_Y + page.state.panY) + MIN_CAP + page.state.slideY,
   };
 }
 
@@ -479,8 +482,8 @@ describe("a game between two players", () => {
   it("ignores a tap that missed the board altogether", async () => {
     const page = await startGame();
     const layout = hexLayout(SCREEN, 5);
-    canvas().fire(ui.event.CLICK_DOWN, { x: 4, y: 4 });
-    canvas().fire(ui.event.CLICK_UP, { x: 4, y: 4 });
+    canvas().fire(ui.event.CLICK_DOWN, { x: 4, y: MIN_CAP + 4 });
+    canvas().fire(ui.event.CLICK_UP, { x: 4, y: MIN_CAP + 4 });
     for (const draw of drawnCells(layout, page).values()) {
       expect(draw.color).not.toBe(COLOR_RED);
     }
