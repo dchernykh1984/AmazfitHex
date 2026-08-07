@@ -299,14 +299,66 @@ describe("shouldSwap", () => {
     expect(shouldSwap(game)).toBe(true);
   });
 
-  it("leaves an opening stone played out in an acute corner", () => {
+  it("leaves an opening stone played out in a corner, whichever corner", () => {
     for (const corner of [
       [0, 0],
       [6, 6],
+      [6, 0],
+      [0, 6],
     ]) {
       const game = createGame(7);
       play(game, at(game, corner[0], corner[1]));
       expect(shouldSwap(game), `${corner}`).toBe(false);
+    }
+  });
+
+  it("leaves an opening on the opener's own edge, however central it looks", () => {
+    // Red joins the top and bottom rows, so a red stone standing on one of them
+    // has bought almost nothing - and taking it over would buy the same nothing.
+    for (const cell of [
+      [3, 0],
+      [3, 6],
+      [1, 0],
+      [5, 6],
+    ]) {
+      const game = createGame(7);
+      play(game, at(game, cell[0], cell[1]));
+      expect(shouldSwap(game), `${cell}`).toBe(false);
+    }
+  });
+
+  it("takes an opening on the opponent's edge when it is up near the middle", () => {
+    // The left and right columns are blue's, not red's, so a red stone there is
+    // a real blocking move and worth having.
+    const game = createGame(7);
+    play(game, at(game, 0, 3));
+    expect(shouldSwap(game)).toBe(true);
+  });
+
+  it("takes the middle of the board and leaves the rim, on every board size", () => {
+    for (const size of [5, 7, 9]) {
+      let taken = 0;
+      for (let cell = 0; cell < size * size; cell++) {
+        const game = createGame(size);
+        play(game, cell);
+        if (shouldSwap(game)) {
+          taken += 1;
+        }
+      }
+      // Somewhere between "hardly ever" and "almost always": judging by distance
+      // from the middle alone used to take three openings in four, corners and
+      // own-edge stones included, which made the rule look like it fired at
+      // random.
+      const share = taken / (size * size);
+      expect(share, `size ${size}`).toBeGreaterThan(0.35);
+      expect(share, `size ${size}`).toBeLessThan(0.7);
+
+      // And never a stone on red's own edge, wherever along it.
+      for (const cell of [0, size - 1, size * size - 1, size * (size - 1), Math.floor(size / 2)]) {
+        const game = createGame(size);
+        play(game, cell);
+        expect(shouldSwap(game), `size ${size} cell ${cell}`).toBe(false);
+      }
     }
   });
 
