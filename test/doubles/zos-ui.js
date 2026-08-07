@@ -9,6 +9,7 @@ export const widget = {
   FILL_RECT: "FILL_RECT",
   TEXT: "TEXT",
   BUTTON: "BUTTON",
+  CANVAS: "CANVAS",
 };
 
 export const prop = { MORE: "MORE" };
@@ -43,13 +44,42 @@ export function createWidget(type, properties) {
       this.listeners[id] = callback;
     },
     // Delivers an event the way the watch would, and only to a widget that is
-    // still on screen.
-    fire(id) {
+    // still on screen. Touch events carry the point they happened at.
+    fire(id, info) {
       if (this.deleted || !this.listeners[id]) {
         return false;
       }
-      this.listeners[id]();
+      this.listeners[id](info || {});
       return true;
+    },
+
+    // ---- canvas ----
+    // Every drawing call is recorded rather than rasterised, which is what the
+    // tests look at: which cells were drawn, in what colour, at which corners.
+    draws: [],
+    clear(area) {
+      this.draws.push({ op: "clear", area: Object.assign({}, area) });
+    },
+    drawPoly(options) {
+      this.draws.push({
+        op: "drawPoly",
+        color: options.color,
+        points: options.data_array.map((point) => ({ x: point.x, y: point.y })),
+      });
+    },
+    drawCircle(options) {
+      this.draws.push({
+        op: "drawCircle",
+        color: options.color,
+        x: options.center_x,
+        y: options.center_y,
+        radius: options.radius,
+      });
+    },
+    // The drawing calls since the last clear, which is one rendered frame.
+    frame() {
+      const last = this.draws.map((d) => d.op).lastIndexOf("clear");
+      return this.draws.slice(last + 1);
     },
     tap() {
       if (this.deleted) {

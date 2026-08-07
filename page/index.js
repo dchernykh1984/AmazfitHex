@@ -21,7 +21,17 @@ import {
   swapSides,
 } from "../lib/hex/game.js";
 import { LEVELS, chooseMove, clampLevel, nextLevel, shouldSwap } from "../lib/hex/ai.js";
-import { cellBox, hexLayout } from "../lib/layout/hex-layout.js";
+import {
+  cellAt,
+  cellCenterX,
+  cellCenterY,
+  clampPan,
+  hexCorners,
+  hexLayout,
+  isCellVisible,
+  panLimits,
+  panToCell,
+} from "../lib/layout/hex-layout.js";
 import { centeredBox } from "../lib/round-geometry.js";
 import { labelFor, languageFromZeppCode } from "../lib/i18n/index.js";
 import {
@@ -51,6 +61,7 @@ import {
   COLOR_MUTED,
   COLOR_RED,
   COLOR_TEXT,
+  DRAG_SLOP,
   MIN_CAP,
   SCREEN_PADDING,
   THINKING_DELAY_MS,
@@ -63,6 +74,18 @@ const BUTTON_HEIGHT = Math.round(SCREEN_SIZE * 0.11);
 const STACK_GAP = Math.round(SCREEN_SIZE * 0.018);
 const MAX_MENU_WIDTH = Math.round(SCREEN_SIZE * 0.78);
 const FOOTER_GAP = Math.round(SCREEN_SIZE * 0.02);
+
+// The board lives in the band between the two caps, which hold the status line
+// and the buttons. Everything the board draws, and every touch it answers, is in
+// this box's own coordinates.
+const VIEW = {
+  x: 0,
+  y: MIN_CAP,
+  w: SCREEN_SIZE,
+  h: SCREEN_SIZE - 2 * MIN_CAP,
+};
+const VIEW_MIDDLE_X = Math.round(VIEW.w / 2);
+const VIEW_MIDDLE_Y = Math.round(VIEW.h / 2);
 
 const RED_EDGES = EDGE_RED_START | EDGE_RED_END;
 const BLUE_EDGES = EDGE_BLUE_START | EDGE_BLUE_END;
@@ -132,11 +155,21 @@ Page({
     thinking: false,
     timer: null,
     destroyed: false,
+    // Where the middle of the board has been dragged to, relative to the middle
+    // of the viewport, and what the finger is currently doing.
+    panX: 0,
+    panY: 0,
+    panLimit: { x: 0, y: 0 },
+    touching: false,
+    touchX: 0,
+    touchY: 0,
+    startPanX: 0,
+    startPanY: 0,
+    dragged: false,
     // Widgets, grouped by lifetime: the background lives as long as the page,
-    // the cells and the last-move mark as long as a game, and the status line,
-    // the footer and the menu as long as a screen.
-    cells: [],
-    mark: null,
+    // the board canvas as long as a game, and the status line, the footer and
+    // the menu as long as a screen.
+    canvas: null,
     status: null,
     footer: [],
     menu: [],
@@ -156,8 +189,8 @@ Page({
     this.state.layout = null;
     this.state.thinking = false;
     this.state.timer = null;
-    this.state.cells = [];
-    this.state.mark = null;
+    this.resetPan();
+    this.state.canvas = null;
     this.state.status = null;
     this.state.footer = [];
     this.state.menu = [];
@@ -285,22 +318,20 @@ Page({
     this.state.thinking = false;
     const size = boardSizeFor(this.state.sizeIndex);
     this.state.game = createGame(size);
-    // Another game on the board already drawn only needs its cells painted back
-    // to empty. Deleting and recreating one widget per cell would be up to a
-    // hundred and sixty widget operations on the largest board, which is a
-    // visible stutter on a watch and buys nothing.
-    if (
-      this.state.layout &&
-      this.state.layout.size === size &&
-      this.state.cells.length === size * size
-    ) {
-      this.repaintBoard();
-    } else {
-      this.state.layout = hexLayout(SCREEN_SIZE, size, SCREEN_PADDING, MIN_CAP);
-      this.buildBoard();
-    }
+    this.state.layout = hexLayout(SCREEN_SIZE, size);
+    this.resetPan();
+    this.state.panLimit = panLimits(this.state.layout, VIEW.w, VIEW.h);
+    this.buildBoard();
+    this.drawBoard();
     this.updateHud();
     this.maybeAnswer();
+  },
+
+  resetPan() {
+    this.state.panX = 0;
+    this.state.panY = 0;
+    this.state.touching = false;
+    this.state.dragged = false;
   },
 
   // ---------------------------------------------------------------- moves ----
@@ -312,7 +343,7 @@ Page({
     return this.state.mode !== MODE_COMPUTER || seat === SEAT_FIRST;
   },
 
-  onCellTap(cell) {
+  placeStone(cell) {
     if (this.state.destroyed || this.state.screen !== "playing" || this.state.thinking) {
       return;
     }
@@ -323,8 +354,7 @@ Page({
     if (!play(game, cell)) {
       return;
     }
-    this.paintCell(cell);
-    this.markLastMove();
+    this.drawBoard();
     this.afterMove();
   },
 
@@ -375,13 +405,16 @@ Page({
     } else {
       const move = chooseMove(game, { level: this.state.level });
       if (move >= 0 && play(game, move)) {
-        this.paintCell(move);
-        this.markLastMove();
+        // The watch may well answer somewhere the board has been dragged away
+        // from, so bring its stone into view rather than leaving the player to
+        // hunt for what changed.
+        this.revealCell(move);
         answered = true;
       }
     }
 
     this.state.thinking = false;
+    this.drawBoard();
 
     if (!answered) {
       // Nothing to play, which the rules say cannot happen while a game is
@@ -400,88 +433,137 @@ Page({
 
   buildBoard() {
     this.clearBoard();
-    const layout = this.state.layout;
-    const edges = this.state.game.topology.edges;
-    for (let cell = 0; cell < layout.cellCount; cell++) {
-      const box = cellBox(layout, cell);
-      const widget = hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: box.x,
-        y: box.y,
-        w: box.w,
-        h: box.h,
-        radius: layout.radius,
-        color: colorForEmptyCell(edges[cell]),
-      });
-      this.listenToCell(widget, cell);
-      this.state.cells.push(widget);
-    }
-  },
-
-  // Put the cells already on screen back to how a fresh board looks. The taps
-  // they listen for are unaffected: a cell reports which cell it is, and the
-  // page decides what that means now.
-  repaintBoard() {
-    if (this.state.mark) {
-      hmUI.deleteWidget(this.state.mark);
-      this.state.mark = null;
-    }
-    for (let cell = 0; cell < this.state.cells.length; cell++) {
-      this.paintCell(cell);
-    }
-  },
-
-  listenToCell(widget, cell) {
-    try {
-      widget.addEventListener(hmUI.event.CLICK_UP, () => this.onCellTap(cell));
-    } catch {
-      // A firmware that does not deliver per-widget taps leaves a board that can
-      // be read but not played, which still beats a page that threw while it was
-      // being built and left the screen black.
-    }
-  },
-
-  paintCell(cell) {
-    const widget = this.state.cells[cell];
-    if (!widget) {
-      return;
-    }
-    const layout = this.state.layout;
-    const box = cellBox(layout, cell);
-    const stone = this.state.game.cells[cell];
-    widget.setProperty(hmUI.prop.MORE, {
-      x: box.x,
-      y: box.y,
-      w: box.w,
-      h: box.h,
-      radius: layout.radius,
-      color: stone ? colorForStone(stone) : colorForEmptyCell(this.state.game.topology.edges[cell]),
+    this.state.canvas = hmUI.createWidget(hmUI.widget.CANVAS, {
+      x: VIEW.x,
+      y: VIEW.y,
+      w: VIEW.w,
+      h: VIEW.h,
     });
+    this.listenToBoard(this.state.canvas);
   },
 
-  // A dot on the stone played last, so a board of look-alike discs still shows
-  // what just happened. One widget for the life of a game: it is moved, not
-  // recreated.
-  markLastMove() {
-    const game = this.state.game;
+  listenToBoard(canvas) {
+    try {
+      canvas.addEventListener(hmUI.event.CLICK_DOWN, (info) => this.onTouchDown(info));
+      canvas.addEventListener(hmUI.event.MOVE, (info) => this.onTouchMove(info));
+      canvas.addEventListener(hmUI.event.CLICK_UP, (info) => this.onTouchUp(info));
+    } catch {
+      // A firmware that does not deliver touch on a canvas leaves a board that
+      // can be read but not played, which still beats a page that threw while
+      // it was being built and left the screen black.
+    }
+  },
+
+  // Where the middle of the board currently sits inside the viewport.
+  originX() {
+    return VIEW_MIDDLE_X + this.state.panX;
+  },
+
+  originY() {
+    return VIEW_MIDDLE_Y + this.state.panY;
+  },
+
+  drawBoard() {
+    const canvas = this.state.canvas;
     const layout = this.state.layout;
-    const cell = game.lastMove;
-    if (cell < 0) {
+    const game = this.state.game;
+    if (!canvas || !layout || !game) {
       return;
     }
-    const radius = Math.max(2, Math.round(layout.radius * 0.32));
-    const box = {
-      x: layout.centersX[cell] - radius,
-      y: layout.centersY[cell] - radius,
-      w: radius * 2,
-      h: radius * 2,
-      radius,
-      color: COLOR_MARK,
-    };
-    if (this.state.mark) {
-      this.state.mark.setProperty(hmUI.prop.MORE, box);
+
+    canvas.clear({ x: 0, y: 0, w: VIEW.w, h: VIEW.h });
+
+    const originX = this.originX();
+    const originY = this.originY();
+    const edges = game.topology.edges;
+
+    for (let cell = 0; cell < layout.cellCount; cell++) {
+      // On the biggest board most of the hexagons are scrolled out of sight, and
+      // drawing them would cost the same as drawing the ones you can see.
+      if (!isCellVisible(layout, cell, originX, originY, 0, 0, VIEW.w, VIEW.h)) {
+        continue;
+      }
+      const stone = game.cells[cell];
+      canvas.drawPoly({
+        data_array: hexCorners(layout, cell, originX, originY),
+        color: stone ? colorForStone(stone) : colorForEmptyCell(edges[cell]),
+      });
+    }
+
+    // A dot on the stone played last, so a board of look-alike hexagons still
+    // shows what just happened.
+    const last = game.lastMove;
+    if (last >= 0 && isCellVisible(layout, last, originX, originY, 0, 0, VIEW.w, VIEW.h)) {
+      canvas.drawCircle({
+        center_x: cellCenterX(layout, last, originX),
+        center_y: cellCenterY(layout, last, originY),
+        radius: Math.max(2, Math.round(layout.scale * 0.22)),
+        color: COLOR_MARK,
+      });
+    }
+  },
+
+  // ---------------------------------------------------------------- touch ----
+
+  onTouchDown(info) {
+    if (this.state.screen === "menu" || !this.state.layout) {
       return;
     }
-    this.state.mark = hmUI.createWidget(hmUI.widget.FILL_RECT, box);
+    this.state.touching = true;
+    this.state.dragged = false;
+    this.state.touchX = info.x;
+    this.state.touchY = info.y;
+    this.state.startPanX = this.state.panX;
+    this.state.startPanY = this.state.panY;
+  },
+
+  // Dragging moves the board under the finger. Until the finger has travelled
+  // further than the slop, the touch is still a candidate for a tap - a fingertip
+  // never lands and lifts on exactly one pixel.
+  onTouchMove(info) {
+    if (!this.state.touching) {
+      return;
+    }
+    const dx = info.x - this.state.touchX;
+    const dy = info.y - this.state.touchY;
+    if (!this.state.dragged && Math.abs(dx) < DRAG_SLOP && Math.abs(dy) < DRAG_SLOP) {
+      return;
+    }
+    this.state.dragged = true;
+    const limit = this.state.panLimit;
+    this.state.panX = clampPan(this.state.startPanX + dx, limit.x);
+    this.state.panY = clampPan(this.state.startPanY + dy, limit.y);
+    this.drawBoard();
+  },
+
+  onTouchUp(info) {
+    if (!this.state.touching) {
+      return;
+    }
+    this.state.touching = false;
+    if (this.state.dragged) {
+      this.state.dragged = false;
+      return;
+    }
+    const cell = cellAt(this.state.layout, this.originX(), this.originY(), info.x, info.y);
+    if (cell >= 0) {
+      this.placeStone(cell);
+    }
+  },
+
+  // Pan so a cell is in the middle of the viewport, as far as the board's own
+  // edges allow. A board that fits does not move.
+  revealCell(cell) {
+    const layout = this.state.layout;
+    if (!layout) {
+      return;
+    }
+    if (isCellVisible(layout, cell, this.originX(), this.originY(), 0, 0, VIEW.w, VIEW.h)) {
+      return;
+    }
+    const pan = panToCell(layout, cell, VIEW.w, VIEW.h);
+    this.state.panX = pan.x;
+    this.state.panY = pan.y;
   },
 
   // ---------------------------------------------------------------- hud ----
@@ -525,11 +607,10 @@ Page({
     if (!line) {
       return;
     }
-    const cap = this.state.layout.top;
-    const height = Math.round(cap * 0.44);
+    const height = Math.round(MIN_CAP * 0.44);
     const box = centeredBox(
       SCREEN_SIZE,
-      Math.round(cap * 0.3),
+      Math.round(MIN_CAP * 0.3),
       height,
       MAX_MENU_WIDTH,
       SCREEN_PADDING
@@ -567,12 +648,12 @@ Page({
       return;
     }
 
-    const layout = this.state.layout;
-    const cap = SCREEN_SIZE - layout.bottom;
+    const capTop = VIEW.y + VIEW.h;
+    const cap = SCREEN_SIZE - capTop;
     const height = Math.round(cap * 0.46);
     const row = centeredBox(
       SCREEN_SIZE,
-      layout.bottom + Math.round(cap * 0.22),
+      capTop + Math.round(cap * 0.22),
       height,
       MAX_MENU_WIDTH,
       SCREEN_PADDING
@@ -655,14 +736,12 @@ Page({
   },
 
   clearBoard() {
-    for (let i = 0; i < this.state.cells.length; i++) {
-      hmUI.deleteWidget(this.state.cells[i]);
+    if (this.state.canvas) {
+      hmUI.deleteWidget(this.state.canvas);
+      this.state.canvas = null;
     }
-    this.state.cells = [];
-    if (this.state.mark) {
-      hmUI.deleteWidget(this.state.mark);
-      this.state.mark = null;
-    }
+    this.state.touching = false;
+    this.state.dragged = false;
   },
 
   clearStatus() {

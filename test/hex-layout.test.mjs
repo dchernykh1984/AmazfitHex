@@ -1,75 +1,64 @@
 import { describe, it, expect } from "vitest";
-import { CELL_RATIO, cellBox, hexLayout } from "../lib/layout/hex-layout.js";
+import {
+  HEX_FILL,
+  cellAt,
+  cellCenterX,
+  cellCenterY,
+  clampPan,
+  hexCorners,
+  hexLayout,
+  hexSizeFor,
+  isCellVisible,
+  panLimits,
+  panToCell,
+} from "../lib/layout/hex-layout.js";
 import { MAX_NEIGHBORS, MAX_SIZE, MIN_SIZE, topologyFor } from "../lib/hex/board.js";
 import { BOARD_SIZES } from "../lib/settings.js";
-import { MIN_CAP, SCREEN_PADDING } from "../utils/config/constants.js";
 
-// The two round screens the app is built for, the boards it offers and the
-// spacing it asks for, taken from what actually ships rather than restated here:
-// the guarantees below are only worth having for the real numbers.
+// The two round screens the app is built for, and the boards it offers.
 const SCREENS = [466, 480];
 const SIZES = BOARD_SIZES;
-const PADDING = SCREEN_PADDING;
 
 const distance = (layout, a, b) =>
-  Math.hypot(layout.centersX[a] - layout.centersX[b], layout.centersY[a] - layout.centersY[b]);
+  Math.hypot(layout.offsetsX[a] - layout.offsetsX[b], layout.offsetsY[a] - layout.offsetsY[b]);
+
+describe("hexSizeFor", () => {
+  it("gives a cell a fingertip can hit, the size the five-cell board already used", () => {
+    // 55px across on a 466px watch is what the old five-cell board drew and what
+    // was comfortable to play; every board now uses it.
+    const layout = hexLayout(466, 5);
+    expect(layout.cellWidth).toBeGreaterThanOrEqual(50);
+    expect(layout.cellWidth).toBeLessThanOrEqual(60);
+  });
+
+  it("keeps a cell the same size whatever the board size", () => {
+    const sizes = SIZES.map((size) => hexLayout(466, size).cellWidth);
+    expect(new Set(sizes).size).toBe(1);
+  });
+
+  it("scales with the screen rather than being a fixed pixel count", () => {
+    expect(hexSizeFor(480)).toBeGreaterThan(hexSizeFor(466));
+    expect(hexSizeFor(1)).toBeGreaterThanOrEqual(4);
+  });
+});
 
 describe("hexLayout", () => {
-  it("keeps every cell inside the bezel on every screen and board size", () => {
-    for (const screen of SCREENS) {
-      for (const size of SIZES) {
-        const layout = hexLayout(screen, size, PADDING, MIN_CAP);
-        const middle = screen / 2;
-        for (let cell = 0; cell < layout.cellCount; cell++) {
-          const reach =
-            Math.hypot(layout.centersX[cell] - middle, layout.centersY[cell] - middle) +
-            layout.radius;
-          expect(reach, `screen ${screen} size ${size} cell ${cell}`).toBeLessThanOrEqual(
-            middle - PADDING + 1
-          );
-        }
-      }
-    }
+  it("clamps a board size it does not support", () => {
+    expect(hexLayout(466, 0).size).toBe(MIN_SIZE);
+    expect(hexLayout(466, 99).size).toBe(MAX_SIZE);
   });
 
-  it("leaves a cap of at least the requested height above and below", () => {
-    for (const screen of SCREENS) {
-      for (const size of SIZES) {
-        const layout = hexLayout(screen, size, PADDING, MIN_CAP);
-        expect(layout.top, `screen ${screen} size ${size}`).toBeGreaterThanOrEqual(MIN_CAP - 1);
-        expect(screen - layout.bottom, `screen ${screen} size ${size}`).toBeGreaterThanOrEqual(
-          MIN_CAP - 1
-        );
-      }
-    }
-  });
-
-  it("draws cells big enough to tap on every supported board", () => {
-    for (const screen of SCREENS) {
-      for (const size of SIZES) {
-        const layout = hexLayout(screen, size, PADDING, MIN_CAP);
-        expect(layout.radius * 2, `screen ${screen} size ${size}`).toBeGreaterThanOrEqual(20);
-      }
-    }
-  });
-
-  it("never lets two cells overlap", () => {
+  it("centres the board, so the acute corners mirror each other", () => {
     for (const size of SIZES) {
-      const layout = hexLayout(466, size, PADDING, MIN_CAP);
-      const topology = topologyFor(size);
-      for (let cell = 0; cell < layout.cellCount; cell++) {
-        for (let i = 0; i < topology.degree[cell]; i++) {
-          const next = topology.neighbors[cell * MAX_NEIGHBORS + i];
-          expect(distance(layout, cell, next), `size ${size}: ${cell}-${next}`).toBeGreaterThan(
-            2 * layout.radius
-          );
-        }
-      }
+      const layout = hexLayout(466, size);
+      const last = layout.cellCount - 1;
+      expect(layout.offsetsX[0] + layout.offsetsX[last], `size ${size}`).toBe(0);
+      expect(layout.offsetsY[0] + layout.offsetsY[last], `size ${size}`).toBe(0);
     }
   });
 
   it("puts every neighbour the same distance away, which is what makes it a hex grid", () => {
-    const layout = hexLayout(466, 7, PADDING, MIN_CAP);
+    const layout = hexLayout(466, 7);
     const topology = topologyFor(7);
     const spacings = [];
     for (let cell = 0; cell < layout.cellCount; cell++) {
@@ -77,63 +66,240 @@ describe("hexLayout", () => {
         spacings.push(distance(layout, cell, topology.neighbors[cell * MAX_NEIGHBORS + i]));
       }
     }
-    const smallest = Math.min(...spacings);
-    const largest = Math.max(...spacings);
     // Centres are rounded to whole pixels, so allow a pixel of slop.
-    expect(largest - smallest).toBeLessThanOrEqual(2);
+    expect(Math.max(...spacings) - Math.min(...spacings)).toBeLessThanOrEqual(2);
   });
 
   it("shears each row half a cell to the right of the one above it", () => {
-    const layout = hexLayout(466, 5, PADDING, MIN_CAP);
-    const step = layout.centersX[1] - layout.centersX[0];
-    // Centres are rounded to whole pixels, so allow a pixel of slop.
-    expect(Math.abs(layout.centersX[5] - layout.centersX[0] - step / 2)).toBeLessThanOrEqual(1);
-    expect(layout.centersY[5]).toBeGreaterThan(layout.centersY[0]);
-    expect(layout.centersY[1]).toBe(layout.centersY[0]);
+    const layout = hexLayout(466, 5);
+    const step = layout.offsetsX[1] - layout.offsetsX[0];
+    expect(Math.abs(layout.offsetsX[5] - layout.offsetsX[0] - step / 2)).toBeLessThanOrEqual(1);
+    expect(layout.offsetsY[5]).toBeGreaterThan(layout.offsetsY[0]);
+    expect(layout.offsetsY[1]).toBe(layout.offsetsY[0]);
   });
 
-  it("centres the board, so the acute corners mirror each other", () => {
+  it("grows with the board instead of shrinking the cells", () => {
+    let previous = 0;
     for (const size of SIZES) {
-      const layout = hexLayout(466, size, PADDING, MIN_CAP);
-      const last = layout.cellCount - 1;
-      expect(layout.centersX[0] + layout.centersX[last], `size ${size}`).toBe(466);
-      expect(layout.centersY[0] + layout.centersY[last], `size ${size}`).toBe(466);
+      const layout = hexLayout(466, size);
+      expect(layout.halfWidth, `size ${size}`).toBeGreaterThan(previous);
+      previous = layout.halfWidth;
     }
   });
 
-  it("shrinks the cells as the board grows", () => {
-    let previous = Infinity;
+  it("covers every cell within its own half extents", () => {
     for (const size of SIZES) {
-      const layout = hexLayout(466, size, PADDING, MIN_CAP);
-      expect(layout.radius, `size ${size}`).toBeLessThan(previous);
-      previous = layout.radius;
+      const layout = hexLayout(466, size);
+      for (let cell = 0; cell < layout.cellCount; cell++) {
+        expect(Math.abs(layout.offsetsX[cell]) + layout.cellWidth / 2).toBeLessThanOrEqual(
+          layout.halfWidth + 1
+        );
+        expect(Math.abs(layout.offsetsY[cell]) + layout.cellHeight / 2).toBeLessThanOrEqual(
+          layout.halfHeight + 1
+        );
+      }
     }
-  });
-
-  it("clamps a board size it does not support", () => {
-    expect(hexLayout(466, 0, PADDING, MIN_CAP).size).toBe(MIN_SIZE);
-    expect(hexLayout(466, 99, PADDING, MIN_CAP).size).toBe(MAX_SIZE);
-  });
-
-  it("still produces a drawable board when there is no room to spare", () => {
-    const layout = hexLayout(466, 9, 400, 400);
-    expect(layout.radius).toBeGreaterThanOrEqual(1);
-    expect(layout.cellCount).toBe(81);
-  });
-
-  it("sizes a disc from the hex size it settled on", () => {
-    const layout = hexLayout(466, 7, PADDING, MIN_CAP);
-    expect(layout.radius).toBe(Math.floor(layout.scale * CELL_RATIO));
   });
 });
 
-describe("cellBox", () => {
-  it("boxes a cell's disc around its centre", () => {
-    const layout = hexLayout(466, 5, PADDING, MIN_CAP);
-    const box = cellBox(layout, 12);
-    expect(box.w).toBe(layout.radius * 2);
-    expect(box.h).toBe(layout.radius * 2);
-    expect(box.x + layout.radius).toBe(layout.centersX[12]);
-    expect(box.y + layout.radius).toBe(layout.centersY[12]);
+describe("hexCorners", () => {
+  it("draws a pointy-topped hexagon around the cell centre", () => {
+    const layout = hexLayout(466, 5);
+    const corners = hexCorners(layout, 12, 233, 233);
+    expect(corners.length).toBe(6);
+
+    const centerX = cellCenterX(layout, 12, 233);
+    const centerY = cellCenterY(layout, 12, 233);
+    // A point straight up and one straight down, and four at the corners.
+    expect(corners[0].x).toBe(centerX);
+    expect(corners[3].x).toBe(centerX);
+    expect(corners[0].y).toBeLessThan(centerY);
+    expect(corners[3].y).toBeGreaterThan(centerY);
+    // Symmetric about the centre in both directions.
+    expect(corners[0].y + corners[3].y).toBe(2 * centerY);
+    expect(corners[1].x + corners[5].x).toBe(2 * centerX);
+    expect(corners[1].y).toBe(corners[5].y);
+  });
+
+  it("is a regular hexagon: every corner the same distance from the middle", () => {
+    const layout = hexLayout(466, 7);
+    const corners = hexCorners(layout, 0, 200, 200);
+    const centerX = cellCenterX(layout, 0, 200);
+    const centerY = cellCenterY(layout, 0, 200);
+    const reach = corners.map((corner) => Math.hypot(corner.x - centerX, corner.y - centerY));
+    expect(Math.max(...reach) - Math.min(...reach)).toBeLessThanOrEqual(1.5);
+    expect(Math.max(...reach)).toBeLessThanOrEqual(layout.scale);
+  });
+
+  it("leaves a gap between neighbours rather than merging them into a slab", () => {
+    const layout = hexLayout(466, 5);
+    expect(HEX_FILL).toBeLessThan(1);
+    const across = hexCorners(layout, 0, 0, 0)[1].x - hexCorners(layout, 0, 0, 0)[5].x;
+    expect(across).toBeLessThan(layout.cellWidth);
+  });
+
+  it("moves with the board when it is panned", () => {
+    const layout = hexLayout(466, 5);
+    const still = hexCorners(layout, 7, 233, 233);
+    const moved = hexCorners(layout, 7, 233 + 40, 233 - 25);
+    for (let i = 0; i < 6; i++) {
+      expect(moved[i].x - still[i].x).toBe(40);
+      expect(moved[i].y - still[i].y).toBe(-25);
+    }
+  });
+});
+
+describe("cellAt", () => {
+  it("finds the cell a touch on its centre belongs to", () => {
+    for (const size of SIZES) {
+      const layout = hexLayout(466, size);
+      for (let cell = 0; cell < layout.cellCount; cell++) {
+        const x = cellCenterX(layout, cell, 233);
+        const y = cellCenterY(layout, cell, 233);
+        expect(cellAt(layout, 233, 233, x, y), `size ${size} cell ${cell}`).toBe(cell);
+      }
+    }
+  });
+
+  it("still picks the right cell well away from its centre", () => {
+    const layout = hexLayout(466, 7);
+    const cell = 3 * 7 + 3;
+    const x = cellCenterX(layout, cell, 233);
+    const y = cellCenterY(layout, cell, 233);
+    // Most of the way to the flat side, and most of the way to a corner.
+    expect(cellAt(layout, 233, 233, x + layout.cellWidth * 0.4, y)).toBe(cell);
+    expect(cellAt(layout, 233, 233, x, y - layout.scale * 0.8)).toBe(cell);
+  });
+
+  it("rejects a touch that missed the board", () => {
+    const layout = hexLayout(466, 5);
+    expect(cellAt(layout, 233, 233, 233, 233 - layout.halfHeight - 60)).toBe(-1);
+    expect(cellAt(layout, 233, 233, 233 - layout.halfWidth - 80, 233)).toBe(-1);
+  });
+
+  it("follows the board as it is panned", () => {
+    const layout = hexLayout(466, 9);
+    const cell = 0;
+    const x = cellCenterX(layout, cell, 233 + 120);
+    const y = cellCenterY(layout, cell, 233 - 40);
+    expect(cellAt(layout, 233 + 120, 233 - 40, x, y)).toBe(cell);
+    // The same screen point is a different cell once the board has moved.
+    expect(cellAt(layout, 233, 233, x, y)).not.toBe(cell);
+  });
+
+  it("never returns two cells for one touch, whatever the board", () => {
+    // Every cell claims the points nearest its own centre and no others, so a
+    // sweep across the board hands back each cell in an unbroken run.
+    const layout = hexLayout(466, 5);
+    const seen = new Set();
+    for (let y = -layout.halfHeight; y <= layout.halfHeight; y += 3) {
+      for (let x = -layout.halfWidth; x <= layout.halfWidth; x += 3) {
+        const cell = cellAt(layout, 0, 0, x, y);
+        if (cell >= 0) {
+          seen.add(cell);
+        }
+      }
+    }
+    expect(seen.size).toBe(layout.cellCount);
+  });
+});
+
+describe("panning", () => {
+  it("holds a board that already fits perfectly still", () => {
+    const layout = hexLayout(466, 5);
+    const limits = panLimits(layout, 466, 466);
+    expect(limits.x).toBe(0);
+    expect(limits.y).toBe(0);
+  });
+
+  it("lets a board bigger than the viewport travel exactly as far as it overhangs", () => {
+    const layout = hexLayout(466, 9);
+    const limits = panLimits(layout, 466, 280);
+    expect(limits.x).toBe(layout.halfWidth - 233);
+    expect(limits.y).toBe(layout.halfHeight - 140);
+    expect(limits.x).toBeGreaterThan(0);
+    expect(limits.y).toBeGreaterThan(0);
+  });
+
+  it("clamps a drag to the limit rather than letting the board come away", () => {
+    expect(clampPan(500, 120)).toBe(120);
+    expect(clampPan(-500, 120)).toBe(-120);
+    expect(clampPan(40, 120)).toBe(40);
+    expect(clampPan(0, 0)).toBe(0);
+  });
+
+  it("brings a cell into the middle of the viewport", () => {
+    const layout = hexLayout(466, 9);
+    const cell = 0;
+    const pan = panToCell(layout, cell, 466, 280);
+    const limits = panLimits(layout, 466, 280);
+    // As close to centred as the limits allow.
+    expect(pan.x).toBe(clampPan(-layout.offsetsX[cell], limits.x));
+    expect(pan.y).toBe(clampPan(-layout.offsetsY[cell], limits.y));
+    // And after that pan the cell really is on screen.
+    expect(isCellVisible(layout, cell, 233 + pan.x, 140 + pan.y, 0, 0, 466, 280)).toBe(true);
+  });
+
+  it("does not move a board that fits, even to show a cell", () => {
+    const layout = hexLayout(466, 5);
+    expect(panToCell(layout, 0, 466, 466)).toEqual({ x: 0, y: 0 });
+  });
+});
+
+describe("isCellVisible", () => {
+  it("keeps the cells on screen and drops the ones scrolled away", () => {
+    const layout = hexLayout(466, 9);
+    const originX = 233;
+    const originY = 140;
+    let visible = 0;
+    for (let cell = 0; cell < layout.cellCount; cell++) {
+      if (isCellVisible(layout, cell, originX, originY, 0, 0, 466, 280)) {
+        visible += 1;
+      }
+    }
+    expect(visible).toBeGreaterThan(0);
+    expect(visible).toBeLessThan(layout.cellCount);
+  });
+
+  it("keeps every cell of a board that fits", () => {
+    const layout = hexLayout(466, 5);
+    for (let cell = 0; cell < layout.cellCount; cell++) {
+      expect(isCellVisible(layout, cell, 233, 233, 0, 0, 466, 466), `cell ${cell}`).toBe(true);
+    }
+  });
+
+  it("agrees with cellAt: a cell you can tap is a cell that was drawn", () => {
+    const layout = hexLayout(466, 7);
+    const originX = 233;
+    const originY = 150;
+    for (let y = 0; y < 300; y += 7) {
+      for (let x = 0; x < 466; x += 7) {
+        const cell = cellAt(layout, originX, originY, x, y);
+        if (cell >= 0) {
+          expect(
+            isCellVisible(layout, cell, originX, originY, 0, 0, 466, 300),
+            `cell ${cell} at ${x},${y}`
+          ).toBe(true);
+        }
+      }
+    }
+  });
+});
+
+describe("hexCorners for every board", () => {
+  it("draws a hexagon for every cell on every screen and board", () => {
+    for (const screen of SCREENS) {
+      for (const size of SIZES) {
+        const layout = hexLayout(screen, size);
+        for (let cell = 0; cell < layout.cellCount; cell++) {
+          const corners = hexCorners(layout, cell, 0, 0);
+          expect(corners.length, `screen ${screen} size ${size}`).toBe(6);
+          for (const corner of corners) {
+            expect(Number.isFinite(corner.x)).toBe(true);
+            expect(Number.isFinite(corner.y)).toBe(true);
+          }
+        }
+      }
+    }
   });
 });
