@@ -42,3 +42,8 @@ export const BRIGHT_TIME_MS = 600000;
 // the screen has a chance to repaint and say it is thinking before the search
 // takes the thread.
 export const THINKING_DELAY_MS = 30;
+
+// How far a finger may travel and still count as a tap rather than a drag. A
+// fingertip never lands and lifts on exactly one pixel, so without some slack a
+// board that can be dragged would swallow half the taps meant to place a stone.
+export const DRAG_SLOP = 8;
