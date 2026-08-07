@@ -14,15 +14,23 @@ friend.
 
 ## Playing
 
-- Tap an empty cell to place a stone. The cells along each edge are tinted in that
-  player's colour, and the four corners carry an edge of each player, which is exactly
-  how Hex counts them.
-- A dot marks the stone played last.
-- **Swap** appears in reply to the opening stone. This is the pie rule: the second
-  player may take the opening stone instead of answering it, which is what keeps Hex
-  fair, since the player who moves first is otherwise proven to have the advantage.
-  Against the watch, the watch decides for itself whether to take yours.
-- Board sizes are 5x5, 7x7 and 9x9. The choice of mode, level and board size is
+- **Tap** an empty hexagon to place a stone. The cells along each edge are tinted in
+  that player's colour, and the four corners carry an edge of each player, which is
+  exactly how Hex counts them. A dot marks the stone played last.
+- **Drag** to move the board around. A cell is a fixed, fingertip-sized hexagon on
+  every board, so 5x5 fits the screen whole while 7x7 and 9x9 are bigger than it and
+  are dragged into view. When the watch answers somewhere you cannot see, the board
+  moves itself to show you. A drag never places a stone, and a tap that wobbles a
+  little still counts as a tap.
+- **Swap on / Swap off** sets the pie rule. With it on, the second player may take the
+  opening stone instead of answering it - which is what keeps Hex fair, since the
+  player who moves first is otherwise proven to have the advantage. Against the watch,
+  the watch decides for itself whether to take yours, and the screen says **Sides
+  swapped** when it does, because nothing on the board moves when it happens: the
+  stone stays where it is and keeps its colour, and all that changes is whose it is.
+  The watch only takes an opening worth taking - not one standing on its own edge, and
+  not one out towards a corner.
+- Board sizes are 5x5, 7x7 and 9x9. Mode, level, board size and the pie rule are all
   remembered for next time.
 
 ## The computer opponent
@@ -66,10 +74,15 @@ npm run build     # produce the .zab store bundle
 on demand (`npx`), so it is not tracked as a dependency; the first run downloads it.
 
 The rules, the geometry and the opponent are plain ES modules with no Zepp OS
-dependency, so they are unit tested directly. The page is tested too: the Zepp OS
-runtime modules it imports are aliased to hand-written doubles in `test/doubles/`
-(wired up in `vitest.config.mjs`), so the tests build the page, tap it and read back
-what it drew.
+dependency, so they are unit tested directly.
+
+The board is drawn as filled polygons on a single `CANVAS` widget rather than as one
+widget per cell, which is what makes dragging affordable: a frame redraws only the
+hexagons currently on screen, and on the biggest board most of them are not.
+
+The page is tested too: the Zepp OS runtime modules it imports are aliased to
+hand-written doubles in `test/doubles/` (wired up in `vitest.config.mjs`), so the tests
+build the page, tap and drag it, and read back every shape it drew.
 
 ## Continuous integration and releases
 
