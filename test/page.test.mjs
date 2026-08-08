@@ -330,12 +330,17 @@ describe("the board", () => {
     expect(moved[0].x).toBe(pointOf(layout, page, at(5, 0, 0)).x);
   });
 
-  it("draws only the hexagons a bigger board has on screen", async () => {
+  it("stops painting the hexagons dragged right off the far side", async () => {
     const page = await startGame({ sizeIndex: 2 });
     const layout = hexLayout(SCREEN, 9);
-    const drawn = drawnCells(layout, page);
-    expect(drawn.size).toBeGreaterThan(0);
-    expect(drawn.size).toBeLessThan(layout.cellCount);
+    // Sitting still, everything is painted: a drag slides this canvas without
+    // repainting it, so the cells waiting to slide in have to be on it already.
+    expect(drawnCells(layout, page).size).toBe(layout.cellCount);
+
+    // Dragged hard into one corner, the opposite corner is far enough away to
+    // be worth dropping.
+    drag(page, { x: 233, y: MIN_CAP + 137 }, 5000, 5000);
+    expect(drawnCells(layout, page).size).toBeLessThan(layout.cellCount);
   });
 
   it("goes away when the game does, leaving the menu unobstructed", async () => {
@@ -444,6 +449,43 @@ describe("dragging the board", () => {
       expect(draw.color).not.toBe(COLOR_RED);
     }
     expect(texts()).toContain(EN.turn_red);
+  });
+
+  it("settles the board when the finger leaves the canvas mid-drag", async () => {
+    // No release event arrives in that case. Left alone, the board would stay
+    // slid away from the pan it was painted for - blank down one side, and
+    // lying across the buttons.
+    const page = await startGame({ sizeIndex: 2 });
+    const home = canvas().properties.x;
+    canvas().fire(ui.event.CLICK_DOWN, { x: 233, y: MIN_CAP + 137 });
+    canvas().fire(ui.event.MOVE, { x: 233 + 70, y: MIN_CAP + 137 });
+    expect(page.state.slideX).toBe(70);
+
+    canvas().fire(ui.event.MOVE_OUT, {});
+    expect(page.state.slideX).toBe(0);
+    expect(page.state.panX).toBe(70);
+    expect(page.state.touching).toBe(false);
+    expect(canvas().properties.x).toBe(home);
+  });
+
+  it("abandons a drag that the watch's own move panned out from under", async () => {
+    vi.useFakeTimers();
+    const page = await startGame({ mode: 1, level: 0, sizeIndex: 2 });
+    const layout = hexLayout(SCREEN, 9);
+
+    drag(page, { x: 233, y: MIN_CAP + 137 }, 5000, 5000);
+    tap(page, layout, at(9, 0, 0));
+
+    // A drag begun while the watch is thinking is measured against a pan the
+    // watch is about to throw away.
+    canvas().fire(ui.event.CLICK_DOWN, { x: 233, y: MIN_CAP + 137 });
+    canvas().fire(ui.event.MOVE, { x: 233 - 50, y: MIN_CAP + 137 });
+    vi.runOnlyPendingTimers();
+
+    expect(page.state.touching).toBe(false);
+    expect(page.state.slideX).toBe(0);
+    canvas().fire(ui.event.MOVE, { x: 233 - 90, y: MIN_CAP + 137 });
+    expect(page.state.slideX).toBe(0);
   });
 
   it("starts every game with the board centred", async () => {
