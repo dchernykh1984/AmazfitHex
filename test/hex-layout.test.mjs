@@ -4,11 +4,13 @@ import {
   cellAt,
   cellCenterX,
   cellCenterY,
+  cellReach,
   clampPan,
   hexCorners,
   hexLayout,
   hexSizeFor,
-  isCellVisible,
+  isCellDrawable,
+  isCellFullyVisible,
   panLimits,
   panToCell,
 } from "../lib/layout/hex-layout.js";
@@ -205,20 +207,54 @@ describe("cellAt", () => {
 });
 
 describe("panning", () => {
-  it("holds a board that already fits perfectly still", () => {
+  const PADDING = 8;
+
+  it("holds a board whose cells all clear the bezel where it sits", () => {
     const layout = hexLayout(466, 5);
-    const limits = panLimits(layout, 466, 466);
-    expect(limits.x).toBe(0);
-    expect(limits.y).toBe(0);
+    expect(panLimits(layout, 466, PADDING)).toEqual({ x: 0, y: 0 });
   });
 
-  it("lets a board bigger than the viewport travel exactly as far as it overhangs", () => {
+  it("lets a bigger board travel far enough to free its acute corners", () => {
+    // The board's own corners are the cells that hide behind the rim, and the
+    // rectangle the board sits in is not what decides it - the circle is.
+    for (const size of [7, 9]) {
+      const limits = panLimits(hexLayout(466, size), 466, PADDING);
+      expect(limits.x, `size ${size}`).toBeGreaterThan(0);
+      expect(limits.y, `size ${size}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("can bring every cell of every board out from behind the rim", () => {
+    // The bug this guards: on a round screen the pan used to stop when the
+    // board's edge met the viewport's, which left the two acute corner cells
+    // permanently under the bezel - visible as a sliver and impossible to tap.
+    for (const screen of SCREENS) {
+      for (const size of SIZES) {
+        const layout = hexLayout(screen, size);
+        const limits = panLimits(layout, screen, PADDING);
+        for (let cell = 0; cell < layout.cellCount; cell++) {
+          const pan = panToCell(layout, cell, screen, PADDING);
+          expect(Math.abs(pan.x), `screen ${screen} size ${size}`).toBeLessThanOrEqual(limits.x);
+          expect(Math.abs(pan.y), `screen ${screen} size ${size}`).toBeLessThanOrEqual(limits.y);
+          expect(
+            isCellFullyVisible(layout, cell, pan.x, pan.y, screen, PADDING),
+            `screen ${screen} size ${size} cell ${cell}`
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("asks for no more room than the corners actually need", () => {
+    // Every pixel of allowance past that is board that can be dragged off the
+    // screen for nothing.
     const layout = hexLayout(466, 9);
-    const limits = panLimits(layout, 466, 280);
-    expect(limits.x).toBe(layout.halfWidth - 233);
-    expect(limits.y).toBe(layout.halfHeight - 140);
-    expect(limits.x).toBeGreaterThan(0);
-    expect(limits.y).toBeGreaterThan(0);
+    const limits = panLimits(layout, 466, PADDING);
+    let worst = 0;
+    for (let cell = 0; cell < layout.cellCount; cell++) {
+      worst = Math.max(worst, Math.abs(layout.offsetsX[cell]));
+    }
+    expect(limits.x).toBeLessThan(worst);
   });
 
   it("clamps a drag to the limit rather than letting the board come away", () => {
@@ -228,60 +264,65 @@ describe("panning", () => {
     expect(clampPan(0, 0)).toBe(0);
   });
 
-  it("brings a cell into the middle of the viewport", () => {
-    const layout = hexLayout(466, 9);
-    const cell = 0;
-    const pan = panToCell(layout, cell, 466, 280);
-    const limits = panLimits(layout, 466, 280);
-    // As close to centred as the limits allow.
-    expect(pan.x).toBe(clampPan(-layout.offsetsX[cell], limits.x));
-    expect(pan.y).toBe(clampPan(-layout.offsetsY[cell], limits.y));
-    // And after that pan the cell really is on screen.
-    expect(isCellVisible(layout, cell, 233 + pan.x, 140 + pan.y, 0, 0, 466, 280)).toBe(true);
-  });
-
   it("does not move a board that fits, even to show a cell", () => {
     const layout = hexLayout(466, 5);
-    expect(panToCell(layout, 0, 466, 466)).toEqual({ x: 0, y: 0 });
+    expect(panToCell(layout, 0, 466, PADDING)).toEqual({ x: 0, y: 0 });
   });
 });
 
-describe("isCellVisible", () => {
-  it("keeps the cells on screen and drops the ones scrolled away", () => {
+describe("what is on screen", () => {
+  const PADDING = 8;
+
+  it("measures a cell from the middle of the screen", () => {
     const layout = hexLayout(466, 9);
-    const originX = 233;
-    const originY = 140;
-    let visible = 0;
+    expect(cellReach(layout, 0, -layout.offsetsX[0], -layout.offsetsY[0])).toBe(0);
+    expect(cellReach(layout, 0, 0, 0)).toBeGreaterThan(0);
+  });
+
+  it("counts a cell fully visible only when the whole hexagon clears the bezel", () => {
+    const layout = hexLayout(466, 9);
+    // The middle of the board is as clear as it gets.
+    const middle = 4 * 9 + 4;
+    expect(isCellFullyVisible(layout, middle, 0, 0, 466, PADDING)).toBe(true);
+    // An acute corner, unmoved, is not.
+    expect(isCellFullyVisible(layout, 0, 0, 0, 466, PADDING)).toBe(false);
+  });
+
+  it("still draws a cell that is only half on screen", () => {
+    const layout = hexLayout(466, 9);
+    // Somewhere on the board there is a hexagon straddling the rim: too far out
+    // to count as seen, close enough that the half of it on screen is worth
+    // painting.
+    let straddling = -1;
     for (let cell = 0; cell < layout.cellCount; cell++) {
-      if (isCellVisible(layout, cell, originX, originY, 0, 0, 466, 280)) {
-        visible += 1;
+      if (
+        !isCellFullyVisible(layout, cell, 0, 0, 466, PADDING) &&
+        isCellDrawable(layout, cell, 0, 0, 466)
+      ) {
+        straddling = cell;
+        break;
       }
     }
-    expect(visible).toBeGreaterThan(0);
-    expect(visible).toBeLessThan(layout.cellCount);
+    expect(straddling).toBeGreaterThanOrEqual(0);
+  });
+
+  it("drops the cells dragged right off the screen", () => {
+    const layout = hexLayout(466, 9);
+    let drawable = 0;
+    for (let cell = 0; cell < layout.cellCount; cell++) {
+      if (isCellDrawable(layout, cell, 0, 0, 466)) {
+        drawable += 1;
+      }
+    }
+    expect(drawable).toBeGreaterThan(0);
+    expect(drawable).toBeLessThan(layout.cellCount);
   });
 
   it("keeps every cell of a board that fits", () => {
     const layout = hexLayout(466, 5);
     for (let cell = 0; cell < layout.cellCount; cell++) {
-      expect(isCellVisible(layout, cell, 233, 233, 0, 0, 466, 466), `cell ${cell}`).toBe(true);
-    }
-  });
-
-  it("agrees with cellAt: a cell you can tap is a cell that was drawn", () => {
-    const layout = hexLayout(466, 7);
-    const originX = 233;
-    const originY = 150;
-    for (let y = 0; y < 300; y += 7) {
-      for (let x = 0; x < 466; x += 7) {
-        const cell = cellAt(layout, originX, originY, x, y);
-        if (cell >= 0) {
-          expect(
-            isCellVisible(layout, cell, originX, originY, 0, 0, 466, 300),
-            `cell ${cell} at ${x},${y}`
-          ).toBe(true);
-        }
-      }
+      expect(isCellDrawable(layout, cell, 0, 0, 466), `cell ${cell}`).toBe(true);
+      expect(isCellFullyVisible(layout, cell, 0, 0, 466, PADDING), `cell ${cell}`).toBe(true);
     }
   });
 });

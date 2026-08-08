@@ -28,7 +28,8 @@ import {
   clampPan,
   hexCorners,
   hexLayout,
-  isCellVisible,
+  isCellDrawable,
+  isCellFullyVisible,
   panLimits,
   panToCell,
 } from "../lib/layout/hex-layout.js";
@@ -352,7 +353,7 @@ Page({
     this.state.game = createGame(size, { swapRule: swapRuleEnabled(this.state.swap) });
     this.state.layout = hexLayout(SCREEN_SIZE, size);
     this.resetPan();
-    this.state.panLimit = panLimits(this.state.layout, VIEW.w, VIEW.h);
+    this.state.panLimit = panLimits(this.state.layout, SCREEN_SIZE, SCREEN_PADDING);
     this.buildBoard();
     this.drawBoard();
     this.updateHud();
@@ -533,7 +534,7 @@ Page({
     for (let cell = 0; cell < layout.cellCount; cell++) {
       // On the biggest board most of the hexagons are scrolled out of sight, and
       // drawing them would cost the same as drawing the ones you can see.
-      if (!isCellVisible(layout, cell, originX, originY, 0, 0, VIEW.w, VIEW.h)) {
+      if (!isCellDrawable(layout, cell, this.state.panX, this.state.panY, SCREEN_SIZE)) {
         continue;
       }
       const stone = game.cells[cell];
@@ -546,7 +547,7 @@ Page({
     // A dot on the stone played last, so a board of look-alike hexagons still
     // shows what just happened.
     const last = game.lastMove;
-    if (last >= 0 && isCellVisible(layout, last, originX, originY, 0, 0, VIEW.w, VIEW.h)) {
+    if (last >= 0 && isCellDrawable(layout, last, this.state.panX, this.state.panY, SCREEN_SIZE)) {
       canvas.drawCircle({
         center_x: cellCenterX(layout, last, originX),
         center_y: cellCenterY(layout, last, originY),
@@ -632,10 +633,19 @@ Page({
     if (!layout) {
       return;
     }
-    if (isCellVisible(layout, cell, this.originX(), this.originY(), 0, 0, VIEW.w, VIEW.h)) {
+    if (
+      isCellFullyVisible(
+        layout,
+        cell,
+        this.state.panX,
+        this.state.panY,
+        SCREEN_SIZE,
+        SCREEN_PADDING
+      )
+    ) {
       return;
     }
-    const pan = panToCell(layout, cell, VIEW.w, VIEW.h);
+    const pan = panToCell(layout, cell, SCREEN_SIZE, SCREEN_PADDING);
     this.state.panX = pan.x;
     this.state.panY = pan.y;
     this.state.slideX = 0;

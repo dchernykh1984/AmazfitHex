@@ -8,7 +8,13 @@ import {
   SWAP_KEY,
   SWAP_OFF,
 } from "../lib/settings.js";
-import { cellCenterX, cellCenterY, hexLayout, panLimits } from "../lib/layout/hex-layout.js";
+import {
+  cellCenterX,
+  cellCenterY,
+  hexLayout,
+  isCellFullyVisible,
+  panLimits,
+} from "../lib/layout/hex-layout.js";
 import {
   COLOR_BLUE,
   COLOR_CELL,
@@ -19,6 +25,7 @@ import {
   COLOR_RED,
   DRAG_SLOP,
   MIN_CAP,
+  SCREEN_PADDING,
 } from "../utils/config/constants.js";
 
 const EN = LABELS.en;
@@ -385,7 +392,7 @@ describe("dragging the board", () => {
   it("never drags the board off its own edge", async () => {
     const page = await startGame({ sizeIndex: 2 });
     const layout = hexLayout(SCREEN, 9);
-    const limits = panLimits(layout, VIEW.w, VIEW.h);
+    const limits = panLimits(layout, SCREEN, SCREEN_PADDING);
     drag(page, { x: 233, y: 137 }, 5000, 5000);
     expect(page.state.panX).toBe(limits.x);
     expect(page.state.panY).toBe(limits.y);
@@ -587,7 +594,12 @@ describe("a game between two players", () => {
     button("5x5").tap();
     button(EN.play).tap();
     const layout = hexLayout(SCREEN, 7);
-    expect(drawnCells(layout, page).size).toBe(49);
+    const drawn = drawnCells(layout, page);
+    // A seven-cell board is wider than the screen, so its far corners are off
+    // the edge and not painted until they are dragged in.
+    expect(drawn.size).toBeGreaterThan(25);
+    expect(drawn.size).toBeLessThanOrEqual(49);
+    expect(page.state.layout.size).toBe(7);
   });
 });
 
@@ -668,7 +680,7 @@ describe("a game against the watch", () => {
     vi.useFakeTimers();
     const page = await startGame({ mode: 1, level: 0, sizeIndex: 2 });
     const layout = hexLayout(SCREEN, 9);
-    const limits = panLimits(layout, VIEW.w, VIEW.h);
+    const limits = panLimits(layout, SCREEN, SCREEN_PADDING);
     expect(limits.x).toBeGreaterThan(0);
 
     // Drag the board hard to one side, then play - whatever the watch answers,
@@ -678,8 +690,20 @@ describe("a game against the watch", () => {
     vi.runOnlyPendingTimers();
 
     const drawn = drawnCells(layout, page);
-    const blue = [...drawn.values()].filter((draw) => draw.color === COLOR_BLUE);
-    expect(blue.length).toBe(1);
+    const answered = [...drawn.entries()].filter(([, draw]) => draw.color === COLOR_BLUE);
+    expect(answered.length).toBe(1);
+    // Not merely drawn - clear of the bezel, which on a round screen is a
+    // stricter thing than being inside the rectangle the board is drawn in.
+    expect(
+      isCellFullyVisible(
+        layout,
+        answered[0][0],
+        page.state.panX,
+        page.state.panY,
+        SCREEN,
+        SCREEN_PADDING
+      )
+    ).toBe(true);
   });
 
   it("plays a whole game out and names the winner as the player or the watch", async () => {
