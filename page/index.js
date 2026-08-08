@@ -353,7 +353,7 @@ Page({
     this.state.game = createGame(size, { swapRule: swapRuleEnabled(this.state.swap) });
     this.state.layout = hexLayout(SCREEN_SIZE, size);
     this.resetPan();
-    this.state.panLimit = panLimits(this.state.layout, SCREEN_SIZE, SCREEN_PADDING);
+    this.state.panLimit = panLimits(this.state.layout, SCREEN_SIZE, SCREEN_PADDING, VIEW.h);
     this.buildBoard();
     this.drawBoard();
     this.updateHud();
@@ -452,6 +452,14 @@ Page({
     }
     const game = this.state.game;
 
+    // A drag begun while the watch was thinking was measured against a pan the
+    // watch may be about to move. Abandon it rather than let the next finger
+    // movement snap the board back to where it started.
+    this.state.touching = false;
+    this.state.dragged = false;
+    this.state.slideX = 0;
+    this.state.slideY = 0;
+
     let answered = false;
     if (canSwap(game) && shouldSwap(game)) {
       answered = swapSides(game);
@@ -501,11 +509,21 @@ Page({
       canvas.addEventListener(hmUI.event.CLICK_DOWN, (info) => this.onTouchDown(info));
       canvas.addEventListener(hmUI.event.MOVE, (info) => this.onTouchMove(info));
       canvas.addEventListener(hmUI.event.CLICK_UP, (info) => this.onTouchUp(info));
+      // A finger that leaves the canvas never sends a release, and a drag left
+      // half-finished would keep the board slid away from the pan it is drawn
+      // for - blank down one side, and lying across the buttons.
+      canvas.addEventListener(hmUI.event.MOVE_OUT, () => this.endDrag());
     } catch {
       // A firmware that does not deliver touch on a canvas leaves a board that
       // can be read but not played, which still beats a page that threw while
       // it was being built and left the screen black.
     }
+  },
+
+  // The furthest a drag can slide the painted canvas before it is repainted.
+  slideRoom() {
+    const limit = this.state.panLimit;
+    return Math.max(limit.x, limit.y);
   },
 
   // Where the middle of the board currently sits inside the viewport.
@@ -534,7 +552,18 @@ Page({
     for (let cell = 0; cell < layout.cellCount; cell++) {
       // On the biggest board most of the hexagons are scrolled out of sight, and
       // drawing them would cost the same as drawing the ones you can see.
-      if (!isCellDrawable(layout, cell, this.state.panX, this.state.panY, SCREEN_SIZE)) {
+      // A drag slides this canvas without repainting it, so cells that far
+      // outside are painted now against the moment they slide in.
+      if (
+        !isCellDrawable(
+          layout,
+          cell,
+          this.state.panX,
+          this.state.panY,
+          SCREEN_SIZE,
+          this.slideRoom()
+        )
+      ) {
         continue;
       }
       const stone = game.cells[cell];
@@ -547,7 +576,10 @@ Page({
     // A dot on the stone played last, so a board of look-alike hexagons still
     // shows what just happened.
     const last = game.lastMove;
-    if (last >= 0 && isCellDrawable(layout, last, this.state.panX, this.state.panY, SCREEN_SIZE)) {
+    if (
+      last >= 0 &&
+      isCellDrawable(layout, last, this.state.panX, this.state.panY, SCREEN_SIZE, this.slideRoom())
+    ) {
       canvas.drawCircle({
         center_x: cellCenterX(layout, last, originX),
         center_y: cellCenterY(layout, last, originY),
@@ -602,23 +634,31 @@ Page({
     this.placeCanvas();
   },
 
+  // Settle a drag: fold the slide into the pan and repaint once, which fills
+  // back in the edges the slide left blank.
+  endDrag() {
+    this.state.touching = false;
+    if (!this.state.dragged) {
+      return;
+    }
+    this.state.dragged = false;
+    this.state.panX += this.state.slideX;
+    this.state.panY += this.state.slideY;
+    this.state.slideX = 0;
+    this.state.slideY = 0;
+    this.placeCanvas();
+    this.drawBoard();
+  },
+
   onTouchUp(info) {
     if (!this.state.touching) {
       return;
     }
-    this.state.touching = false;
     if (this.state.dragged) {
-      this.state.dragged = false;
-      // Fold the slide into the pan and repaint once, which fills back in the
-      // edges the slide left blank.
-      this.state.panX += this.state.slideX;
-      this.state.panY += this.state.slideY;
-      this.state.slideX = 0;
-      this.state.slideY = 0;
-      this.placeCanvas();
-      this.drawBoard();
+      this.endDrag();
       return;
     }
+    this.state.touching = false;
     const point = this.boardPoint(info);
     const cell = cellAt(this.state.layout, this.originX(), this.originY(), point.x, point.y);
     if (cell >= 0) {
