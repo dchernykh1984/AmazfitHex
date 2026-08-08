@@ -24,5 +24,8 @@
     "globals": "^17.7.0",
     "prettier": "^3.4.2",
     "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "nanoid": "^3.3.18"
   }
 }
