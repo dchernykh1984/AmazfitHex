@@ -47,3 +47,9 @@ export const THINKING_DELAY_MS = 30;
 // fingertip never lands and lifts on exactly one pixel, so without some slack a
 // board that can be dragged would swallow half the taps meant to place a stone.
 export const DRAG_SLOP = 8;
+
+// How far the board has to travel before a drag repaints it. Repainting is the
+// expensive half of panning - a board of hexagons costs over a tenth of a second
+// - so the finger moves further than the eye needs before the picture catches
+// up, which trades a little smoothness for a drag that keeps up at all.
+export const DRAG_REPAINT_STEP = 10;

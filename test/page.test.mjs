@@ -23,6 +23,7 @@ import {
   COLOR_CELL_RED_EDGE,
   COLOR_MARK,
   COLOR_RED,
+  DRAG_REPAINT_STEP,
   DRAG_SLOP,
   MIN_CAP,
   SCREEN_PADDING,
@@ -122,8 +123,8 @@ const at = (size, column, row) => row * size + column;
 // progress on top of it.
 function pointOf(layout, page, cell) {
   return {
-    x: cellCenterX(layout, cell, MIDDLE_X + page.state.panX) + page.state.slideX,
-    y: cellCenterY(layout, cell, MIDDLE_Y + page.state.panY) + MIN_CAP + page.state.slideY,
+    x: cellCenterX(layout, cell, MIDDLE_X + page.state.panX),
+    y: cellCenterY(layout, cell, MIDDLE_Y + page.state.panY) + MIN_CAP,
   };
 }
 
@@ -333,14 +334,13 @@ describe("the board", () => {
   it("stops painting the hexagons dragged right off the far side", async () => {
     const page = await startGame({ sizeIndex: 2 });
     const layout = hexLayout(SCREEN, 9);
-    // Sitting still, everything is painted: a drag slides this canvas without
-    // repainting it, so the cells waiting to slide in have to be on it already.
-    expect(drawnCells(layout, page).size).toBe(layout.cellCount);
-
-    // Dragged hard into one corner, the opposite corner is far enough away to
-    // be worth dropping.
-    drag(page, { x: 233, y: MIN_CAP + 137 }, 5000, 5000);
+    expect(drawnCells(layout, page).size).toBeGreaterThan(0);
     expect(drawnCells(layout, page).size).toBeLessThan(layout.cellCount);
+
+    // Dragged hard into one corner, a different set of them is on screen.
+    const before = [...drawnCells(layout, page).keys()].join();
+    drag(page, { x: 233, y: MIN_CAP + 137 }, 5000, 5000);
+    expect([...drawnCells(layout, page).keys()].join()).not.toBe(before);
   });
 
   it("goes away when the game does, leaving the menu unobstructed", async () => {
@@ -362,36 +362,31 @@ describe("dragging the board", () => {
 
   it("moves a bigger board under the finger", async () => {
     const page = await startGame({ sizeIndex: 2 });
-    const home = canvas().properties.x;
-
-    canvas().fire(ui.event.CLICK_DOWN, { x: 233, y: 137 });
-    canvas().fire(ui.event.MOVE, { x: 233 - 40, y: 137 - 30 });
-    // Mid-drag the canvas itself has slid; repainting what is on it costs a
-    // hundred times as much and waits for the finger to lift.
-    expect(page.state.slideX).toBe(-40);
-    expect(page.state.slideY).toBe(-30);
-    expect(canvas().properties.x).toBe(home - 40);
-
-    canvas().fire(ui.event.CLICK_UP, { x: 233 - 40, y: 137 - 30 });
+    canvas().fire(ui.event.CLICK_DOWN, { x: 233, y: MIN_CAP + 137 });
+    canvas().fire(ui.event.MOVE, { x: 233 - 40, y: MIN_CAP + 137 - 30 });
     expect(page.state.panX).toBe(-40);
     expect(page.state.panY).toBe(-30);
-    expect(page.state.slideX).toBe(0);
-    expect(canvas().properties.x).toBe(home);
+    canvas().fire(ui.event.CLICK_UP, { x: 233 - 40, y: MIN_CAP + 137 - 30 });
+    expect(page.state.panX).toBe(-40);
   });
 
-  it("repaints once, when the finger lifts, rather than on every step", async () => {
+  it("does not repaint for every twitch of the finger", async () => {
+    // Repainting a board of hexagons costs over a tenth of a second, so the
+    // board has to have gone somewhere before the picture is redrawn.
     const page = await startGame({ sizeIndex: 2 });
-    canvas().fire(ui.event.CLICK_DOWN, { x: 233, y: 137 });
+    canvas().fire(ui.event.CLICK_DOWN, { x: 233, y: MIN_CAP + 137 });
     const before = canvas().draws.filter((draw) => draw.op === "clear").length;
 
-    for (let step = 1; step <= 5; step += 1) {
-      canvas().fire(ui.event.MOVE, { x: 233 - step * 12, y: 137 });
+    for (let step = 1; step <= 4; step += 1) {
+      canvas().fire(ui.event.MOVE, { x: 233 - DRAG_SLOP - step, y: MIN_CAP + 137 });
     }
-    expect(canvas().draws.filter((draw) => draw.op === "clear").length).toBe(before);
+    const during = canvas().draws.filter((draw) => draw.op === "clear").length;
+    expect(during - before).toBeLessThan(4);
 
-    canvas().fire(ui.event.CLICK_UP, { x: 233 - 60, y: 137 });
-    expect(canvas().draws.filter((draw) => draw.op === "clear").length).toBe(before + 1);
-    expect(page.state.panX).toBe(-60);
+    canvas().fire(ui.event.MOVE, { x: 233 - DRAG_REPAINT_STEP * 4, y: MIN_CAP + 137 });
+    expect(canvas().draws.filter((draw) => draw.op === "clear").length).toBeGreaterThan(during);
+    canvas().fire(ui.event.CLICK_UP, { x: 233 - DRAG_REPAINT_STEP * 4, y: MIN_CAP + 137 });
+    expect(page.state.panX).toBe(-DRAG_REPAINT_STEP * 4);
   });
 
   it("never drags the board off its own edge", async () => {
@@ -452,20 +447,20 @@ describe("dragging the board", () => {
   });
 
   it("settles the board when the finger leaves the canvas mid-drag", async () => {
-    // No release event arrives in that case. Left alone, the board would stay
-    // slid away from the pan it was painted for - blank down one side, and
-    // lying across the buttons.
+    // No release event arrives in that case, so without this the page would
+    // still think a finger was down and the next touch would carry on the old
+    // drag from wherever it left off.
     const page = await startGame({ sizeIndex: 2 });
-    const home = canvas().properties.x;
     canvas().fire(ui.event.CLICK_DOWN, { x: 233, y: MIN_CAP + 137 });
     canvas().fire(ui.event.MOVE, { x: 233 + 70, y: MIN_CAP + 137 });
-    expect(page.state.slideX).toBe(70);
+    expect(page.state.panX).toBe(70);
 
     canvas().fire(ui.event.MOVE_OUT, {});
-    expect(page.state.slideX).toBe(0);
-    expect(page.state.panX).toBe(70);
     expect(page.state.touching).toBe(false);
-    expect(canvas().properties.x).toBe(home);
+    expect(page.state.dragged).toBe(false);
+    expect(page.state.panX).toBe(70);
+    // What is drawn matches where the board actually is.
+    expect(page.state.paintedPanX).toBe(70);
   });
 
   it("abandons a drag that the watch's own move panned out from under", async () => {
@@ -482,10 +477,10 @@ describe("dragging the board", () => {
     canvas().fire(ui.event.MOVE, { x: 233 - 50, y: MIN_CAP + 137 });
     vi.runOnlyPendingTimers();
 
+    const settled = page.state.panX;
     expect(page.state.touching).toBe(false);
-    expect(page.state.slideX).toBe(0);
     canvas().fire(ui.event.MOVE, { x: 233 - 90, y: MIN_CAP + 137 });
-    expect(page.state.slideX).toBe(0);
+    expect(page.state.panX).toBe(settled);
   });
 
   it("starts every game with the board centred", async () => {
