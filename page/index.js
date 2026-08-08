@@ -67,6 +67,7 @@ import {
   COLOR_MUTED,
   COLOR_RED,
   COLOR_TEXT,
+  DRAG_REPAINT_STEP,
   DRAG_SLOP,
   MIN_CAP,
   SCREEN_PADDING,
@@ -177,11 +178,10 @@ Page({
     startPanX: 0,
     startPanY: 0,
     dragged: false,
-    // How far the canvas widget itself is currently shifted from where it lives.
-    // A drag slides the widget, which costs one property write; the hexagons on
-    // it are only repainted once, when the finger lifts.
-    slideX: 0,
-    slideY: 0,
+    // The pan the board was last painted at, so a drag only repaints once it has
+    // actually moved far enough to be worth it.
+    paintedPanX: 0,
+    paintedPanY: 0,
     // Widgets, grouped by lifetime: the background lives as long as the page,
     // the board canvas as long as a game, and the status line, the footer and
     // the menu as long as a screen.
@@ -363,25 +363,10 @@ Page({
   resetPan() {
     this.state.panX = 0;
     this.state.panY = 0;
-    this.state.slideX = 0;
-    this.state.slideY = 0;
+    this.state.paintedPanX = 0;
+    this.state.paintedPanY = 0;
     this.state.touching = false;
     this.state.dragged = false;
-  },
-
-  // Put the canvas back where it belongs, plus whatever a drag in progress has
-  // slid it by. Moving the widget is the cheap half of panning: repainting the
-  // board costs a hundred times as much, so it waits until the finger is up.
-  placeCanvas() {
-    if (!this.state.canvas) {
-      return;
-    }
-    this.state.canvas.setProperty(hmUI.prop.MORE, {
-      x: VIEW.x + this.state.slideX,
-      y: VIEW.y + this.state.slideY,
-      w: VIEW.w,
-      h: VIEW.h,
-    });
   },
 
   // ---------------------------------------------------------------- moves ----
@@ -457,8 +442,6 @@ Page({
     // movement snap the board back to where it started.
     this.state.touching = false;
     this.state.dragged = false;
-    this.state.slideX = 0;
-    this.state.slideY = 0;
 
     let answered = false;
     if (canSwap(game) && shouldSwap(game)) {
@@ -520,12 +503,6 @@ Page({
     }
   },
 
-  // The furthest a drag can slide the painted canvas before it is repainted.
-  slideRoom() {
-    const limit = this.state.panLimit;
-    return Math.max(limit.x, limit.y);
-  },
-
   // Where the middle of the board currently sits inside the viewport.
   originX() {
     return VIEW_MIDDLE_X + this.state.panX;
@@ -544,6 +521,8 @@ Page({
     }
 
     canvas.clear({ x: 0, y: 0, w: VIEW.w, h: VIEW.h });
+    this.state.paintedPanX = this.state.panX;
+    this.state.paintedPanY = this.state.panY;
 
     const originX = this.originX();
     const originY = this.originY();
@@ -552,18 +531,7 @@ Page({
     for (let cell = 0; cell < layout.cellCount; cell++) {
       // On the biggest board most of the hexagons are scrolled out of sight, and
       // drawing them would cost the same as drawing the ones you can see.
-      // A drag slides this canvas without repainting it, so cells that far
-      // outside are painted now against the moment they slide in.
-      if (
-        !isCellDrawable(
-          layout,
-          cell,
-          this.state.panX,
-          this.state.panY,
-          SCREEN_SIZE,
-          this.slideRoom()
-        )
-      ) {
+      if (!isCellDrawable(layout, cell, this.state.panX, this.state.panY, SCREEN_SIZE, 0)) {
         continue;
       }
       const stone = game.cells[cell];
@@ -578,7 +546,7 @@ Page({
     const last = game.lastMove;
     if (
       last >= 0 &&
-      isCellDrawable(layout, last, this.state.panX, this.state.panY, SCREEN_SIZE, this.slideRoom())
+      isCellDrawable(layout, last, this.state.panX, this.state.panY, SCREEN_SIZE, 0)
     ) {
       canvas.drawCircle({
         center_x: cellCenterX(layout, last, originX),
@@ -596,8 +564,8 @@ Page({
   // lives. Both are taken back off before a point is matched to a hexagon.
   boardPoint(info) {
     return {
-      x: info.x - VIEW.x - this.state.slideX,
-      y: info.y - VIEW.y - this.state.slideY,
+      x: info.x - VIEW.x,
+      y: info.y - VIEW.y,
     };
   },
 
@@ -627,26 +595,26 @@ Page({
     }
     this.state.dragged = true;
     const limit = this.state.panLimit;
-    const wantX = clampPan(this.state.startPanX + dx, limit.x);
-    const wantY = clampPan(this.state.startPanY + dy, limit.y);
-    this.state.slideX = wantX - this.state.panX;
-    this.state.slideY = wantY - this.state.panY;
-    this.placeCanvas();
+    this.state.panX = clampPan(this.state.startPanX + dx, limit.x);
+    this.state.panY = clampPan(this.state.startPanY + dy, limit.y);
+    // Repainting the board is the expensive part of a drag, so it happens once
+    // the finger has actually taken it somewhere rather than on every report.
+    if (
+      Math.abs(this.state.panX - this.state.paintedPanX) >= DRAG_REPAINT_STEP ||
+      Math.abs(this.state.panY - this.state.paintedPanY) >= DRAG_REPAINT_STEP
+    ) {
+      this.drawBoard();
+    }
   },
 
-  // Settle a drag: fold the slide into the pan and repaint once, which fills
-  // back in the edges the slide left blank.
+  // Settle a drag: one last repaint, so where the board stops is where it is
+  // drawn however far short of the repaint step the finger stopped.
   endDrag() {
     this.state.touching = false;
     if (!this.state.dragged) {
       return;
     }
     this.state.dragged = false;
-    this.state.panX += this.state.slideX;
-    this.state.panY += this.state.slideY;
-    this.state.slideX = 0;
-    this.state.slideY = 0;
-    this.placeCanvas();
     this.drawBoard();
   },
 
@@ -688,9 +656,6 @@ Page({
     const pan = panToCell(layout, cell, SCREEN_SIZE, SCREEN_PADDING);
     this.state.panX = pan.x;
     this.state.panY = pan.y;
-    this.state.slideX = 0;
-    this.state.slideY = 0;
-    this.placeCanvas();
   },
 
   // ---------------------------------------------------------------- hud ----
