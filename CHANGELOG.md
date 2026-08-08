@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.3.0](https://github.com/dchernykh1984/AmazfitHex/compare/amazfit-hex-v0.2.1...amazfit-hex-v0.3.0) (2026-08-08)
+
+
+### Features
+
+* draw the board as hexagons you can drag around ([19802fe](https://github.com/dchernykh1984/AmazfitHex/commit/19802fea6eab03130b1a19c0c6741796b4d92aba))
+* let the pie rule be switched off from the menu ([eaf4825](https://github.com/dchernykh1984/AmazfitHex/commit/eaf48256b04c236cbb7cf6721fed4856b843bdbc))
+
+
+### Bug Fixes
+
+* keep a dragged board in step with what the screen can show ([a103c63](https://github.com/dchernykh1984/AmazfitHex/commit/a103c633df175d32279785187568222eb6eb03f0))
+* let the board be dragged far enough to free its corner cells ([5430ba4](https://github.com/dchernykh1984/AmazfitHex/commit/5430ba4e003b9eeb1cf6e3988b7a7b00fef84df2))
+* read a touch in the screen coordinates the watch reports it in ([34fedea](https://github.com/dchernykh1984/AmazfitHex/commit/34fedea150d1dda650b9832ea1f0a477146e79aa))
+* repaint the board as it is dragged instead of moving the canvas ([de8973b](https://github.com/dchernykh1984/AmazfitHex/commit/de8973bfd451290a2794c377e65a3ed73e0dfa16))
+* say on screen when the opening stone changes hands ([2f0bfd1](https://github.com/dchernykh1984/AmazfitHex/commit/2f0bfd144262e5fffaf5011c4376f7695798fec5))
+* take the opening stone only when it is worth taking ([4579618](https://github.com/dchernykh1984/AmazfitHex/commit/4579618494b62743a66f83723041f0084d1d68b3))
+
+
+### Performance Improvements
+
+* slide the board canvas while dragging and repaint once on release ([608c0bf](https://github.com/dchernykh1984/AmazfitHex/commit/608c0bff9f8c363436dfc599c0e1bed417e19369))
+
 ## [0.2.1](https://github.com/dchernykh1984/AmazfitHex/compare/amazfit-hex-v0.2.0...amazfit-hex-v0.2.1) (2026-08-06)
 
 
