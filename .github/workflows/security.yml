@@ -13,4 +13,4 @@ jobs:
   # Fail only on vulnerabilities the pull request introduces (scans the npm
   # lockfile and the pinned GitHub Actions).
   osv-scan:
-    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.3.8
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@v2.5.1
