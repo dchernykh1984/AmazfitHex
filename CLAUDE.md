@@ -29,6 +29,11 @@ what makes it directly unit testable. The page is the only file that touches
 - **Conventional Commits**, one atomic change per commit, and the subject on a
   **single line**. Anything a reviewer would want to accept or reject on its own
   belongs in its own commit.
+- **A commit message is the subject and nothing else.** No body, no trailers, no
+  `Co-Authored-By`, no attribution of any kind - and the same goes for a pull
+  request description: no "generated with" footer. If some default adds one,
+  strip it before pushing. Explanation belongs in the pull request body, where it
+  is prose about the change rather than a signature.
 - **Source and config stay ASCII.** A pre-commit hook enforces it over
   `*.js`, `*.mjs`, `*.json`, `*.yml`, `*.md`. The only exception is anything under
   a path containing `i18n/`, where the on-watch translations legitimately are not.
