@@ -19,6 +19,10 @@ pull request with a body that explains **why**, not a list of files: what was
 wrong, what was measured, what was decided against and on what evidence. Findings
 that were investigated and rejected are worth a sentence.
 
+No attribution anywhere: commit messages are a single subject line with no
+trailers, and the pull request body carries no "generated with" footer. If a
+default adds one, strip it before pushing.
+
 ## The base branch rules
 
 `main` is protected by a ruleset. Two consequences that come up every time:
