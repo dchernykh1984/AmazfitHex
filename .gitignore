@@ -29,7 +29,16 @@ logs/
 *.iml
 
 # ===== AI agents =====
-.claude/
+# .claude/ itself is committed: it carries the project's own instructions, skills
+# and hooks, which are as much a part of the repository as the lint config. Only
+# the per-machine parts stay out - settings.local.json holds one developer's
+# permission grants, and the rest is scratch the agent writes as it works.
+.claude/settings.local.json
+.claude/*.local.json
+.claude/projects/
+.claude/shell-snapshots/
+.claude/statsig/
+.claude/todos/
 .cursor/
 .windsurf/
 .gemini/
