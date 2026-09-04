@@ -59,6 +59,19 @@ pre-commit run --all-files
 CI adds `actionlint`, `cz check` over the commit range, and a Google OSV
 dependency scan. `pre-commit` is a Python tool: `uv tool install pre-commit`.
 
+Work on a branch cut from current `origin/main` - `git fetch origin && git switch -c
+<type>/<slug> origin/main` - and never commit to `main` directly. Stage only the files
+you touched (`git add <path>`), never `git add -A`: the tree can carry edits that are
+not yours.
+
+Read the verdict from the rollup rather than `gh pr checks`, whose per-check status
+lags and can still say `pending` long after a job has finished:
+
+```bash
+gh pr view <n> --json statusCheckRollup \
+  --jq '[.statusCheckRollup[] | {name:(.name//.context), s:(.conclusion//.state)}]'
+```
+
 ## Two version numbers
 
 A Zepp app carries its version in `app.json`, not `package.json`: `version.name`
@@ -73,6 +86,18 @@ compute it - do not "fix" that by asserting they match.
 
 `app.json` is in `.prettierignore` because `release-please` rewrites it with its
 own JSON formatter, and the two would fight on every release PR.
+
+## Traps the sibling apps already paid for
+
+- **`zeus dev` and `zeus build` rewrite `.gitignore`** with their own template, which
+  ignores `package-lock.json` and would break `npm ci` in CI. Check `git status` after
+  any Zeus command and `git checkout -- .gitignore` if it moved. Never make the file
+  read-only: Zeus then dies with `EPERM`.
+- **Write files as UTF-8.** A PowerShell redirect, `Set-Content` or `Out-File` defaults
+  to UTF-16, which fails the ASCII guard and Prettier on a file that looks perfectly
+  fine in an editor. `file <path>` tells you which encoding you actually wrote.
+- **The Zeus CLI needs Node 18 or 20.** On a newer Node it fails to resolve its own
+  modules, and the error blames the build rather than the Node version.
 
 ## Skills in this repository
 
