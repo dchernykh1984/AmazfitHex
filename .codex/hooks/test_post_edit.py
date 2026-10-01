@@ -32,7 +32,7 @@ class PostEditTests(unittest.TestCase):
 
     def test_multi_file_patch_reports_every_offending_file(self) -> None:
         other = self.root / "other.md"
-        other.write_text(chr(0x416))
+        other.write_text(chr(0x416), encoding="utf-8")
         self.checked.write_bytes(b"\xff")
         paths = HOOK.edited_paths(
             self.payload("*** Update File: source.md\n*** Add File: other.md\n"),
@@ -44,7 +44,7 @@ class PostEditTests(unittest.TestCase):
         )
 
     def test_move_checks_the_destination(self) -> None:
-        self.checked.write_text(chr(0x416))
+        self.checked.write_text(chr(0x416), encoding="utf-8")
         paths = HOOK.edited_paths(
             self.payload("*** Update File: missing.md\n*** Move to: source.md\n"),
             self.root,
@@ -70,7 +70,7 @@ class PostEditTests(unittest.TestCase):
     def test_paths_outside_the_repository_are_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as outside:
             external = Path(outside) / "external.md"
-            external.write_text(chr(0x416))
+            external.write_text(chr(0x416), encoding="utf-8")
             paths = HOOK.edited_paths(
                 self.payload(f"*** Add File: {external}\n"), self.root
             )
@@ -79,7 +79,7 @@ class PostEditTests(unittest.TestCase):
     def test_symlink_to_outside_is_ignored(self) -> None:
         with tempfile.TemporaryDirectory() as outside:
             external = Path(outside) / "external.md"
-            external.write_text(chr(0x416))
+            external.write_text(chr(0x416), encoding="utf-8")
             link = self.root / "link.md"
             try:
                 link.symlink_to(external)
@@ -93,7 +93,7 @@ class PostEditTests(unittest.TestCase):
     def test_exempt_translations_are_allowed(self) -> None:
         translated = self.root / "translations/ru.md"
         translated.parent.mkdir()
-        translated.write_text(chr(0x416))
+        translated.write_text(chr(0x416), encoding="utf-8")
         self.assertEqual(HOOK.violations([translated], self.root, self.checks), [])
 
     def test_ascii_and_unchecked_types_are_allowed(self) -> None:
@@ -145,7 +145,7 @@ class PostEditTests(unittest.TestCase):
         for name in ["lib/i18n/labels.js", "package-lock.json", "CHANGELOG.md", "source.md", "script.py"]:
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(chr(0x416))
+            path.write_text(chr(0x416), encoding="utf-8")
             paths.append(path)
         self.assertEqual(HOOK.violations(paths, self.root, checks), ["source.md", "script.py"])
 
@@ -188,6 +188,37 @@ class PostEditTests(unittest.TestCase):
         self.checks["format_mode"] = "check"
         with patch.object(HOOK.subprocess, "run", return_value=Mock(returncode=1, stderr="bad format", stdout="")):
             self.assertEqual(HOOK.format_files([self.checked], self.root, self.checks), 2)
+
+    def test_crlf_patch_paths_are_normalized(self) -> None:
+        paths = HOOK.edited_paths(self.payload("*** Update File: source.md\r\n"), self.root)
+        self.assertEqual(paths, [self.checked])
+
+    def test_real_prettier_checks_then_formats_the_same_file(self) -> None:
+        import shutil
+        installed = SCRIPT.parents[2] / "node_modules/prettier"
+        if not installed.is_dir():
+            self.skipTest("npm ci is required for formatter integration")
+        shutil.copytree(installed, self.root / "node_modules/prettier")
+        self.checked.write_text("#   Heading\n", encoding="utf-8")
+        checks = {"format_mode": "check"}
+        self.assertEqual(HOOK.format_files([self.checked], self.root, checks), 2)
+        self.assertEqual(self.checked.read_text(encoding="utf-8"), "#   Heading\n")
+        checks["format_mode"] = "write"
+        self.assertEqual(HOOK.format_files([self.checked], self.root, checks), 0)
+        self.assertEqual(self.checked.read_text(encoding="utf-8"), "# Heading\n")
+
+    def test_autoformat_failure_does_not_block_editing(self) -> None:
+        from unittest.mock import patch, Mock
+        prettier = self.root / "node_modules/prettier/bin/prettier.cjs"
+        prettier.parent.mkdir(parents=True)
+        prettier.touch()
+        self.checks["format_mode"] = "write"
+        with patch.object(HOOK.subprocess, "run", return_value=Mock(returncode=2, stderr="incomplete JS", stdout="")):
+            self.assertEqual(HOOK.format_files([self.checked], self.root, self.checks), 0)
+
+    def test_legacy_file_path_without_patch_is_supported(self) -> None:
+        payload = {"cwd": str(self.root), "tool_input": {"file_path": str(self.checked)}}
+        self.assertEqual(HOOK.edited_paths(payload, self.root), [self.checked])
 
 
 if __name__ == "__main__":

@@ -59,7 +59,7 @@ repos:
 
       - id: agent-hooks
         name: coding-agent hook tests
-        entry: python3 .codex/hooks/test_post_edit.py
+        entry: python .codex/hooks/test_post_edit.py
         language: python
         pass_filenames: false
         files: '^\.codex/'

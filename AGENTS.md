@@ -130,3 +130,8 @@ exact hook definitions in `/hooks` before expecting them to run. See
 `.codex/README.md` for prerequisites, supported checks and permission limits.
 Git hooks are independent: run `pre-commit install` in each clone to enable the
 configured commit, commit-message and push checks.
+
+Explicit user authorization persists for the task. A request to create or update
+a pull request authorizes the pushes needed for that work; do not ask again for
+the same authorized action. Ask before actions outside that scope. Merging,
+tagging and releasing require their own explicit request.
