@@ -29,7 +29,7 @@ repos:
         name: no non-ASCII characters
         language: pygrep
         entry: '[^\x00-\x7f]'
-        files: '\.(m?js|ya?ml|md|json)$'
+        files: '\.(py|m?js|ya?ml|md|json)$'
         exclude: '(package-lock\.json$|CHANGELOG\.md$|/i18n/)'
 
       # Prettier owns formatting for JS, JSON, YAML and Markdown. It runs locally
@@ -56,3 +56,10 @@ repos:
         pass_filenames: false
         files: '\.m?js$'
         stages: [pre-push]
+
+      - id: agent-hooks
+        name: coding-agent hook tests
+        entry: python3 .codex/hooks/test_post_edit.py
+        language: python
+        pass_filenames: false
+        files: '^\.codex/'
