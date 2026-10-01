@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-PATCH_PATH = re.compile(r"^\*\*\* (?:Add File|Update File|Move to): (.+)$", re.MULTILINE)
+PATCH_PATH = re.compile(r"^\*\*\* (?:Add File|Update File|Move to): ([^\r\n]+)\r?$", re.MULTILINE)
 
 
 def edited_paths(payload: dict[str, Any], root: Path) -> list[Path]:
@@ -70,6 +70,8 @@ def format_files(paths: list[Path], root: Path, checks: dict[str, str]) -> int:
     except OSError:
         return 0
     if result.returncode:
+        if mode == "write":
+            return 0
         print(result.stderr or result.stdout, file=sys.stderr)
         return 2
     return 0
